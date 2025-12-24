@@ -14,7 +14,9 @@ const TOTAL_ROUNDS = 40;
 const ANIMALS_PER_TYPE = 10;
 const DISPLAY_DURATION = 1500; // 1.5 seconds
 
-export default function GamePage() {
+import { Suspense } from "react";
+
+function GameContent() {
   const searchParams = useSearchParams();
   const userName = searchParams.get("name") || "Explorer";
 
@@ -204,5 +206,13 @@ export default function GamePage() {
             </p>
        </div>
     </main>
+  );
+}
+
+export default function GamePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-green-500 flex items-center justify-center text-white text-3xl font-bold">Loading Jungle...</div>}>
+      <GameContent />
+    </Suspense>
   );
 }
