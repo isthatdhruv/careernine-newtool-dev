@@ -142,7 +142,9 @@ function generateSequence(stones: StonePos[], roundIndex: number): number[] {
   return randomSubset.sort((a, b) => a - b);
 }
 
-export default function RabbitRiverGamePage() {
+import { Suspense } from "react";
+
+function GameContent() {
   // Video / Intro State
   const [showVideo, setShowVideo] = useState(true);
   const [videoEnded, setVideoEnded] = useState(false);
@@ -872,5 +874,13 @@ export default function RabbitRiverGamePage() {
 
       </div>
     </div>
+  );
+}
+
+export default function RabbitRiverGamePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-900 flex items-center justify-center text-white text-3xl font-bold">Loading Path...</div>}>
+      <GameContent />
+    </Suspense>
   );
 }
