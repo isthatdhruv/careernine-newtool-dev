@@ -1,0 +1,79 @@
+[
+  {
+    "id": 0,
+    "xPct": 21.4,
+    "yPct": 81.3,
+    "rPct": 4,
+    "rabbitScale": 3.5
+  },
+  {
+    "id": 1,
+    "xPct": 47.3,
+    "yPct": 79.8,
+    "rPct": 4.8,
+    "rabbitScale": 2.1
+  },
+  {
+    "id": 2,
+    "xPct": 36.2,
+    "yPct": 70.9,
+    "rPct": 4,
+    "rabbitScale": 2.1
+  },
+  {
+    "id": 3,
+    "xPct": 53.3,
+    "yPct": 68,
+    "rPct": 4.4,
+    "rabbitScale": 2
+  },
+  {
+    "id": 4,
+    "xPct": 43.9,
+    "yPct": 59.8,
+    "rPct": 4,
+    "rabbitScale": 1.8
+  },
+  {
+    "id": 5,
+    "xPct": 68.9,
+    "yPct": 62.6,
+    "rPct": 3.5,
+    "rabbitScale": 1.4
+  },
+  {
+    "id": 6,
+    "xPct": 58.3,
+    "yPct": 55.6,
+    "rPct": 3.9,
+    "rabbitScale": 1.5
+  },
+  {
+    "id": 7,
+    "xPct": 76.1,
+    "yPct": 56.9,
+    "rPct": 3.1,
+    "rabbitScale": 1.5
+  },
+  {
+    "id": 8,
+    "xPct": 67.7,
+    "yPct": 50.8,
+    "rPct": 3.1,
+    "rabbitScale": 1.6
+  },
+  {
+    "id": 9,
+    "xPct": 74.4,
+    "yPct": 49.6,
+    "rPct": 2.3,
+    "rabbitScale": 0.9
+  },
+  {
+    "id": 10,
+    "xPct": 74.6,
+    "yPct": 40.2,
+    "rPct": 4,
+    "rabbitScale": 0
+  }
+]

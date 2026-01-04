@@ -8,11 +8,25 @@ import * as XLSX from "xlsx";
 interface GameResult {
   id: string;
   name: string;
-  score: number;
-  leopardsShown: number;
-  leopardsClicked: number;
-  falseAlarms: number;
   timestamp: string;
+  // Optional nested game data
+  jungle_spot?: {
+    score: number; // legacy
+    leopardsShown: number;
+    leopardsClicked: number;
+    falseAlarms: number;
+    timestamp: string;
+  };
+  rabbit_path?: {
+    score: number;
+    totalRounds: number;
+    timestamp: string;
+  };
+  // Legacy fields for backward compatibility (optional)
+  score?: number; 
+  leopardsShown?: number;
+  leopardsClicked?: number;
+  falseAlarms?: number;
 }
 
 export default function AdminDashboard() {
@@ -47,7 +61,47 @@ export default function AdminDashboard() {
   };
 
   const downloadAllReports = () => {
-    const ws = XLSX.utils.json_to_sheet(results);
+    // Flatten the data for Excel
+    const flattenedData = results.map(r => {
+        // Resolve Jungle Data
+        // If jungle_spot exists OR we have legacy top-level fields
+        const hasJungleData = r.jungle_spot || r.leopardsClicked !== undefined;
+        
+        let jungleScore = "";
+        let jungleFalseAlarms: number | string = "";
+        let jungleDate = "";
+
+        if (hasJungleData) {
+            jungleScore = `${r.jungle_spot?.leopardsClicked ?? r.leopardsClicked ?? r.score ?? 0}/10`;
+            jungleFalseAlarms = r.jungle_spot?.falseAlarms ?? r.falseAlarms ?? 0;
+            jungleDate = r.jungle_spot?.timestamp 
+                ? new Date(r.jungle_spot.timestamp).toLocaleString() 
+                : (r.timestamp ? new Date(r.timestamp).toLocaleString() : '');
+        }
+
+        // Resolve Rabbit Data
+        const hasRabbitData = !!r.rabbit_path;
+        
+        let rabbitScore = "";
+        let rabbitDate = "";
+
+        if (hasRabbitData && r.rabbit_path) {
+            rabbitScore = `${r.rabbit_path.score}/${r.rabbit_path.totalRounds}`;
+            rabbitDate = r.rabbit_path.timestamp ? new Date(r.rabbit_path.timestamp).toLocaleString() : '';
+        }
+
+        return {
+            "Student Name": r.name,
+            "Jungle: Score": jungleScore,
+            "Jungle: False Alarms": jungleFalseAlarms,
+            "Jungle: Date Played": jungleDate,
+            "Rabbit: Score": rabbitScore,
+            "Rabbit: Date Played": rabbitDate,
+            "Last Updated": new Date(r.timestamp).toLocaleString()
+        };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(flattenedData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "AllResults");
     XLSX.writeFile(wb, "all_students_report.xlsx");
@@ -76,16 +130,13 @@ export default function AdminDashboard() {
                   Name
                 </th>
                 <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Score
+                  Jungle Score
                 </th>
                 <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Leopards Found
+                  Rabbit Score
                 </th>
                 <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  False Alarms
-                </th>
-                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  Date
+                  Last Active
                 </th>
                 <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Actions
@@ -99,22 +150,34 @@ export default function AdminDashboard() {
                     <p className="text-gray-900 whitespace-no-wrap font-medium">{result.name}</p>
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
-                    <span className="relative inline-block px-3 py-1 font-semibold text-green-900 leading-tight">
-                      <span aria-hidden className="absolute inset-0 bg-green-200 opacity-50 rounded-full"></span>
-                      <span className="relative">{result.score}</span>
-                    </span>
+                    {/* Jungle Score Display */}
+                    {(result.jungle_spot || result.leopardsClicked !== undefined) ? (
+                         <span className="relative inline-block px-3 py-1 font-semibold text-green-900 leading-tight">
+                            <span aria-hidden className="absolute inset-0 bg-green-200 opacity-50 rounded-full"></span>
+                            <span className="relative">
+                                {result.jungle_spot?.leopardsClicked ?? result.leopardsClicked ?? 0} / 10
+                            </span>
+                         </span>
+                    ) : (
+                        <span className="text-gray-400 italic">Not Played</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                    {/* Rabbit Score Display */}
+                    {result.rabbit_path ? (
+                         <span className="relative inline-block px-3 py-1 font-semibold text-blue-900 leading-tight">
+                            <span aria-hidden className="absolute inset-0 bg-blue-200 opacity-50 rounded-full"></span>
+                            <span className="relative">
+                                {result.rabbit_path.score} / {result.rabbit_path.totalRounds}
+                            </span>
+                         </span>
+                    ) : (
+                        <span className="text-gray-400 italic">Not Played</span>
+                    )}
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                     <p className="text-gray-900 whitespace-no-wrap">
-                      {result.leopardsClicked} / 10
-                    </p>
-                  </td>
-                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
-                    <p className="text-gray-900 whitespace-no-wrap text-red-600 font-bold">{result.falseAlarms}</p>
-                  </td>
-                  <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
-                    <p className="text-gray-900 whitespace-no-wrap">
-                      {new Date(result.timestamp).toLocaleString()}
+                      {new Date(result.timestamp).toLocaleDateString()}
                     </p>
                   </td>
                   <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
