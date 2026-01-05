@@ -20,6 +20,7 @@ interface GameResult {
   rabbit_path?: {
     score: number;
     totalRounds: number;
+    roundsPlayed: number;
     timestamp: string;
   };
   // Legacy fields for backward compatibility (optional)
@@ -43,6 +44,8 @@ export default function AdminDashboard() {
           data.push({ id: doc.id, ...doc.data() } as GameResult);
         });
         setResults(data);
+        console.log(data);
+        // console.log(results)
       } catch (error) {
         console.error("Error fetching data: ", error);
       } finally {
@@ -53,11 +56,53 @@ export default function AdminDashboard() {
     fetchData();
   }, []);
 
-  const downloadReport = (result: GameResult) => {
-    const ws = XLSX.utils.json_to_sheet([result]);
+  const downloadReport = (r: GameResult) => {
+    // Resolve Jungle Data
+    const hasJungleData = r.jungle_spot || r.leopardsClicked !== undefined;
+    
+    let jungleScore = "";
+    let jungleFalseAlarms: number | string = "";
+    let jungleDate = "";
+
+    if (hasJungleData) {
+        jungleScore = `${r.jungle_spot?.leopardsClicked ?? r.leopardsClicked ?? r.score ?? 0}/10`;
+        jungleFalseAlarms = r.jungle_spot?.falseAlarms ?? r.falseAlarms ?? 0;
+        jungleDate = r.jungle_spot?.timestamp 
+            ? new Date(r.jungle_spot.timestamp).toLocaleString() 
+            : (r.timestamp ? new Date(r.timestamp).toLocaleString() : '');
+    }
+
+    // Resolve Rabbit Data
+    const hasRabbitData = !!r.rabbit_path;
+    
+    let rabbitScore = "";
+    let rabbitDate = "";
+    let rabbitTotalRounds = 0;
+    let rabbitRoundsPlayed = 0;
+
+    if (hasRabbitData && r.rabbit_path) {
+        rabbitScore = `${r.rabbit_path.score}`;
+        rabbitDate = r.rabbit_path.timestamp ? new Date(r.rabbit_path.timestamp).toLocaleString() : '';
+        rabbitTotalRounds = r.rabbit_path.totalRounds;
+        rabbitRoundsPlayed = r.rabbit_path.roundsPlayed;
+    }
+
+    const flattenedData = [{
+        "Student Name": r.name,
+        "Jungle: Score": jungleScore || "nil",
+        "Jungle: False Alarms": jungleFalseAlarms || "nil",
+        "Jungle: Date Played": jungleDate || "nil",
+        "Rabbit: Score": rabbitScore || "nil",
+        "Rabbit: Rounds Played": rabbitRoundsPlayed || "nil",
+        "Rabbit: Total Rounds": rabbitTotalRounds || "nil",
+        "Rabbit: Date Played": rabbitDate || "nil",
+        "Last Updated": new Date(r.timestamp).toLocaleString()
+    }];
+
+    const ws = XLSX.utils.json_to_sheet(flattenedData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    XLSX.writeFile(wb, `${result.name}_report.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, `${r.name}_report.xlsx`);
   };
 
   const downloadAllReports = () => {
@@ -84,19 +129,26 @@ export default function AdminDashboard() {
         
         let rabbitScore = "";
         let rabbitDate = "";
+        let rabbitTotalRounds = 0;
+        let rabbitRoundsPlayed = 0;
 
         if (hasRabbitData && r.rabbit_path) {
-            rabbitScore = `${r.rabbit_path.score}/${r.rabbit_path.totalRounds}`;
+          console.log(r.rabbit_path)
+            rabbitScore = `${r.rabbit_path.score}`;
             rabbitDate = r.rabbit_path.timestamp ? new Date(r.rabbit_path.timestamp).toLocaleString() : '';
+            rabbitTotalRounds = r.rabbit_path.totalRounds;
+            rabbitRoundsPlayed = r.rabbit_path.roundsPlayed;
         }
 
         return {
             "Student Name": r.name,
-            "Jungle: Score": jungleScore,
-            "Jungle: False Alarms": jungleFalseAlarms,
-            "Jungle: Date Played": jungleDate,
-            "Rabbit: Score": rabbitScore,
-            "Rabbit: Date Played": rabbitDate,
+            "Jungle: Score": jungleScore || "nil",
+            "Jungle: False Alarms": jungleFalseAlarms || "nil",
+            "Jungle: Date Played": jungleDate || "nil",
+            "Rabbit: Score": rabbitScore || "nil",
+            "Rabbit: Rounds Played": rabbitRoundsPlayed || "nil",
+            "Rabbit: Total Rounds": rabbitTotalRounds || "nil",
+            "Rabbit: Date Played": rabbitDate || "nil",
             "Last Updated": new Date(r.timestamp).toLocaleString()
         };
     });

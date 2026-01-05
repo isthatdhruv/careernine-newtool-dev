@@ -18,7 +18,7 @@ import { db } from "../../../lib/firebase";
 const SCENE_SRC = "/game-scenes/2nd/game-scene-2nd.png";
 const RABBIT_SRC = "/game-scenes/2nd/rabbit-nobg.png";
 
-type Phase = "ready" | "show" | "input" | "feedback" | "paused" | "done";
+type Phase = "ready" | "show" | "input" | "feedback" | "paused" | "trial_done" | "done";
 
 type StonePos = {
   id: number; // 1..9
@@ -106,10 +106,10 @@ const STONES: StonePos[] = [
     "rPct": 2,
     "rabbitScale": 1
   },
-  {
+ {
     "id": 11,
-    "xPct": 84.6,
-    "yPct": 50.2,
+    "xPct": 81.6,
+    "yPct": 40.5,
     "rPct": 4,
     "rabbitScale": 0
   }
@@ -173,6 +173,8 @@ function GameContent() {
 
   // Game State
   const [phase, setPhase] = useState<Phase>("ready");
+  const [isTrial, setIsTrial] = useState(true);
+  const [trialRound, setTrialRound] = useState(0); // 0 or 1
   const [round, setRound] = useState(0); // 0..TOTAL_ROUNDS
   const [score, setScore] = useState(0);
 
@@ -193,6 +195,20 @@ function GameContent() {
               const parsed = JSON.parse(saved);
               // Simple validation
               if (Array.isArray(parsed) && parsed.length > 0) {
+                  // Migration: Ensure ID 11 (End) exists
+                  const hasEnd = parsed.some((s: any) => s.id === 11);
+                  if (!hasEnd) {
+                      const endStone = STONES.find(s => s.id === 11);
+                      if (endStone) parsed.push(endStone);
+                  }
+                  
+                  // Migration: Ensure ID 0 (Start) exists
+                  const hasStart = parsed.some((s: any) => s.id === 0);
+                  if (!hasStart) {
+                       const startStone = STONES.find(s => s.id === 0);
+                       if (startStone) parsed.unshift(startStone);
+                  }
+
                   setStonesState(parsed);
               }
           } catch (e) {
@@ -341,7 +357,11 @@ function GameContent() {
       }, ROUND_SHOW_MS + ROUND_INPUT_MS)
     );
 
-    setRound(nextRoundIndex);
+    if (!isTrial) {
+        setRound(nextRoundIndex);
+    } else {
+        setTrialRound(nextRoundIndex);
+    }
   };
 
   const finishInputAndScore = () => {
@@ -377,27 +397,28 @@ function GameContent() {
       // Case C: Standard Fail (Incorrect or Incomplete after buffer used)
       // Proceed to standard scoring (which will mark as wrong)
       
+      // Case C: Standard Fail/Success
       const correct =
         input.length === seq.length &&
         input.every((v, i) => v === seq[i]);
         
       setLastResult(correct ? "correct" : "wrong");
-      if (correct) {
-          setScore((s) => s + 1);
-          moveRabbitTo(11); // Run to bushes
+      
+      if (isTrial) {
+           if (correct) {
+              moveRabbitTo(11); 
+           }
+      } else {
+          if (correct) {
+              setScore((s) => s + 1);
+              moveRabbitTo(11); 
+          }
       }
 
       // Next round or done
       clearTimers();
       timers.current.push(
         window.setTimeout(() => {
-            // Check if we hit total rounds?
-            // We need to know current round.
-            // setPhase((prev)) callback doesn't give us current round easily.
-            // But we can just use the state setter with functional update?
-            // Actually, `round` state variable is also stale in closure!
-            // We should use setRound(r => ...) OR a Ref for round too.
-            // For simplicity, let's just trigger next via a safe handler
             handleNextRound();
         }, (correct ? 1000 : 700)) 
       );
@@ -415,8 +436,9 @@ function GameContent() {
            const correct = input.length === seq.length && input.every((v, i) => v === seq[i]);
            
            setLastResult(correct ? "correct" : "wrong");
+           
            if (correct) {
-               setScore(s => s + 1);
+               if (!isTrial) setScore(s => s + 1);
                moveRabbitTo(11);
            }
            
@@ -436,6 +458,24 @@ function GameContent() {
 
 
   const handleNextRound = () => {
+      // HANDLE TRIAL END
+      if (isTrial) {
+          setTrialRound(prev => {
+              const next = prev + 1;
+              if (next >= 2) {
+                  // 2 Trials Done
+                  setPhase("trial_done");
+                  setPhaseMsLeft(0);
+                  return prev;
+              } else {
+                   setTimeout(() => startRound(next), 0);
+                   return next;
+              }
+          });
+          return;
+      }
+
+      // GAME END
       setRound(prevRound => {
           const next = prevRound + 1;
           if (next >= TOTAL_ROUNDS) {
@@ -443,14 +483,6 @@ function GameContent() {
               setPhaseMsLeft(0);
               return prevRound;
           } else {
-              // We need to call startRound with new index.
-              // But startRound(next) is outside.
-              // We can't call it purely from here easily? 
-              // Just queue a microtask or effect?
-              // Actually, simply calling startRound here might catch old `stonesState`?
-              // `stonesState` rarely changes during play.
-              // The main issue is startRound sets state.
-              // We can delay it slightly.
               setTimeout(() => startRound(next), 0);
               return next;
           }
@@ -606,14 +638,22 @@ function GameContent() {
 
   const handleGameControl = () => {
     if (phase === "ready") {
-      setGameMsLeft(GAME_MAX_TIME_MS);
-      startRound(0);
-      // Start Global Timer
+      // Start!
+      if (isTrial) {
+          startRound(0); // Start Trial Round 0
+      } else {
+          setGameMsLeft(GAME_MAX_TIME_MS);
+          startRound(0); // Start Game Round 0
+      }
     } else {
-       // Stop and Reset to Start
+       // Stop and Reset to Start (Default to Trial Mode?)
+       // If user clicks "Restart" during game, maybe go back to Ready (Trial?)
+       // Let's assume restart resets everything including trial status
        clearTimers();
+       setIsTrial(true);
        setPhase("ready");
        setRound(0);
+       setTrialRound(0);
        setScore(0);
        setSequence([]);
        sequenceRef.current = [];
@@ -628,7 +668,7 @@ function GameContent() {
 
   // Global Timer
   useEffect(() => {
-    if (phase === "ready" || phase === "done") return;
+    if (phase === "ready" || phase === "done" || phase === "trial_done" || isTrial) return;
     
     const interval = window.setInterval(() => {
         setGameMsLeft(prev => {
@@ -724,6 +764,50 @@ function GameContent() {
         </div>
       )}
 
+      {/* TRIAL COMPLETE MODAL */}
+      {phase === "trial_done" && (
+         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
+             <div className="bg-white rounded-3xl p-8 max-w-lg w-full text-center border-4 border-emerald-400 shadow-2xl relative">
+                  <h2 className="text-3xl font-black text-emerald-600 mb-4">Trial Complete! 🎉</h2>
+                  <p className="text-gray-600 mb-8 text-lg">
+                      You've finished the practice rounds. Ready for the real game?
+                  </p>
+                  
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                      <button 
+                          onClick={() => {
+                              // Restart Trial
+                              setPhase("ready");
+                              setTrialRound(0);
+                              setIsTrial(true);
+                              setTimeout(() => startRound(0), 500);
+                          }}
+                          className="px-6 py-3 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-800 text-lg font-bold shadow-md transition-transform active:scale-95"
+                      >
+                          Restart Trial
+                      </button>
+                      <button 
+                          onClick={() => {
+                              // Start Real Game
+                              setIsTrial(false);
+                              setPhase("ready");
+                              setRound(0);
+                              setScore(0);
+                              // Start after brief delay
+                              setTimeout(() => {
+                                  setGameMsLeft(GAME_MAX_TIME_MS);
+                                  startRound(0);
+                              }, 500);
+                          }}
+                          className="px-6 py-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white text-lg font-bold shadow-lg transition-transform active:scale-95"
+                      >
+                          Start Game 🚀
+                      </button>
+                  </div>
+             </div>
+         </div>
+      )}
+
       {/* Main Game Container */}
       <div className={`w-full max-w-[80%] transition-all duration-500 flex flex-col items-center ${showVideo ? 'blur-sm scale-95 opacity-50' : 'blur-0 scale-100 opacity-100'}`}>
         {/* Top HUD */}
@@ -749,12 +833,22 @@ function GameContent() {
               <div className="text-lg font-semibold">{score}</div>
             </div> */}
 
-            <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
-               <div className="text-xs opacity-80">Total Time</div>
-               <div className={`text-lg font-semibold ${gameMsLeft < 30000 ? 'text-red-400 animate-pulse' : ''}`}>
-                 {Math.floor(gameMsLeft / 1000)}s
-               </div>
-            </div>
+             {/* Trial Indicator */}
+             {isTrial && (
+                <div className="px-3 py-2 rounded-2xl bg-yellow-400/20 backdrop-blur border border-yellow-400/50">
+                    <div className="text-xs text-yellow-200 font-bold uppercase tracking-widest">Trial Mode</div>
+                    <div className="text-lg font-semibold text-yellow-400">Round {trialRound + 1} / 2</div>
+                </div>
+             )}
+
+             {!isTrial && (
+                <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
+                   <div className="text-xs opacity-80">Total Time</div>
+                   <div className={`text-lg font-semibold ${gameMsLeft < 30000 ? 'text-red-400 animate-pulse' : ''}`}>
+                     {Math.floor(gameMsLeft / 1000)}s
+                   </div>
+                </div>
+             )}
 
             <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
               <div className="text-xs opacity-80">Phase</div>
@@ -793,7 +887,7 @@ function GameContent() {
                 onClick={handleGameControl}
                 type="button"
               >
-               {phase === "ready" ? "Start" : "Restart"}
+               {phase === "ready" ? (isTrial ? "Start Trial" : "Start Game") : "Restart"}
            </button>
           </div>
         </div>
