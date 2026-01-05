@@ -18,7 +18,7 @@ import { db } from "../../../lib/firebase";
 const SCENE_SRC = "/game-scenes/2nd/game-scene-2nd.png";
 const RABBIT_SRC = "/game-scenes/2nd/rabbit-nobg.png";
 
-type Phase = "ready" | "show" | "input" | "feedback" | "done";
+type Phase = "ready" | "show" | "input" | "feedback" | "paused" | "done";
 
 type StonePos = {
   id: number; // 1..9
@@ -38,8 +38,8 @@ const STONES: StonePos[] = [
   },
   {
     "id": 1,
-    "xPct": 47.3,
-    "yPct": 79.8,
+    "xPct": 47.1,
+    "yPct": 77.3,
     "rPct": 4.8,
     "rabbitScale": 2.1
   },
@@ -66,53 +66,61 @@ const STONES: StonePos[] = [
   },
   {
     "id": 5,
-    "xPct": 68.9,
-    "yPct": 62.6,
+    "xPct": 69,
+    "yPct": 62.8,
     "rPct": 3.5,
     "rabbitScale": 1.4
   },
   {
     "id": 6,
-    "xPct": 58.3,
-    "yPct": 55.6,
+    "xPct": 58.5,
+    "yPct": 55.3,
     "rPct": 3.9,
     "rabbitScale": 1.5
   },
   {
     "id": 7,
-    "xPct": 76.1,
-    "yPct": 56.9,
+    "xPct": 76.3,
+    "yPct": 56,
     "rPct": 3.1,
     "rabbitScale": 1.5
   },
   {
     "id": 8,
-    "xPct": 67.7,
-    "yPct": 50.8,
+    "xPct": 67.8,
+    "yPct": 50.6,
     "rPct": 3.1,
-    "rabbitScale": 1.6
+    "rabbitScale": 1.5
   },
   {
     "id": 9,
-    "xPct": 74.4,
-    "yPct": 49.6,
+    "xPct": 82.5,
+    "yPct": 51,
     "rPct": 2.3,
     "rabbitScale": 0.9
   },
   {
     "id": 10,
-    "xPct": 74.6,
-    "yPct": 40.2,
+    "xPct": 74.7,
+    "yPct": 49,
+    "rPct": 2,
+    "rabbitScale": 1
+  },
+  {
+    "id": 11,
+    "xPct": 84.6,
+    "yPct": 50.2,
     "rPct": 4,
     "rabbitScale": 0
   }
 ];
 
 const ROUND_SHOW_MS = 10_000;
-const ROUND_INPUT_MS = 5_000;
+const ROUND_INPUT_MS = 20_000;
+const BUFFER_MS = 10_000;
+const GAME_MAX_TIME_MS = 150_000; // 2m 30s Limit
 
-const TOTAL_MINUTES = 3;
-const TOTAL_ROUNDS = Math.floor((TOTAL_MINUTES * 60) / ((ROUND_SHOW_MS + ROUND_INPUT_MS) / 1000)); // 12
+const TOTAL_ROUNDS = 12; // Fixed limit as requested
 const HOME_POS = { xPct: 21.4, yPct: 81.3 }; // Bottom Left Home (Matches Stone 0)
 
 function shuffle<T>(arr: T[]): T[] {
@@ -134,8 +142,8 @@ function generateSequence(stones: StonePos[], roundIndex: number): number[] {
   // Round 6+: 6+ stones
   const length = Math.min(Math.max(3, 3 + Math.floor(roundIndex / 2)), stones.length);
   
-// 1. Shuffle all PLAYABLE IDs (exclude 0 and 10) to pick random ones
-  const allIds = stones.filter(s => s.id !== 0 && s.id !== 10).map(s => s.id);
+  // 1. Shuffle all PLAYABLE IDs (exclude 0 and 11) to pick random ones
+  const allIds = stones.filter(s => s.id !== 0 && s.id !== 11).map(s => s.id);
   const randomSubset = shuffle(allIds).slice(0, length);
   
   // 2. Sort the subset to ensure "increasing order" (rabbit jumps forward)
@@ -171,6 +179,7 @@ function GameContent() {
   const [sequence, setSequence] = useState<number[]>([]);
   const [playerInput, setPlayerInput] = useState<number[]>([]);
   const [activeStone, setActiveStone] = useState<number | null>(null);
+  const [bufferActivated, setBufferActivated] = useState(false);
   
   // Refs for State (needed for Timers/Closures to access latest values)
   const sequenceRef = useRef<number[]>([]);
@@ -205,6 +214,7 @@ function GameContent() {
   const [rabbitVisible, setRabbitVisible] = useState(true);
 
   const [phaseMsLeft, setPhaseMsLeft] = useState(0);
+  const [gameMsLeft, setGameMsLeft] = useState(GAME_MAX_TIME_MS);
   const [lastResult, setLastResult] = useState<"correct" | "wrong" | null>(null);
 
   // Optional: show numbers on stones while tuning positions
@@ -241,9 +251,9 @@ function GameContent() {
           return;
       }
       
-      // If moving to End (10), move there then hide
-      if (stoneId === 10) {
-          const endStone = stonesState.find(s => s.id === 10);
+      // If moving to End (11), move there then hide
+      if (stoneId === 11) {
+          const endStone = stonesState.find(s => s.id === 11);
           if (endStone) {
              setRabbitPos({ x: endStone.xPct, y: endStone.yPct - 5 });
              setRabbitScale(endStone.rabbitScale ?? 0);
@@ -271,6 +281,7 @@ function GameContent() {
     setLastResult(null);
     setPlayerInput([]);
     inputRef.current = []; // Reset Ref
+    setBufferActivated(false);
     moveRabbitTo(0); // Start at 0th box
 
     const seq = generateSequence(stonesState, nextRoundIndex);
@@ -308,7 +319,7 @@ function GameContent() {
     timers.current.push(
       window.setTimeout(() => {
           setActiveStone(null);
-          moveRabbitTo(10); // Jump to bushes and disappear
+          moveRabbitTo(11); // Jump to bushes and disappear
       }, (seq.length + 1) * stepMs)
     );
 
@@ -337,12 +348,35 @@ function GameContent() {
     // Prevent double-finishes
     setPhase((prev) => {
       if (prev !== "input") return prev;
-      // If we ARE switching to feedback, then run scoring logic
-      
-      // Use REFS to check correctness, as closures might be stale
+
       const input = inputRef.current;
       const seq = sequenceRef.current;
+      
+      // TIMEOUT/BUFFER CHECK
+      
+      // Case A: No Input -> PAUSE
+      if (input.length === 0) {
+           clearTimers();
+           return "paused";
+      }
 
+      // Case B: Partial Correct -> BUFFER (give +10s if not already buffered)
+      const isPartialCorrect = input.length > 0 && input.every((v, i) => v === seq[i]);
+      if (isPartialCorrect && !bufferActivated) {
+          setBufferActivated(true);
+          setPhaseMsLeft(BUFFER_MS);
+          
+          const bufferTimer = window.setTimeout(() => {
+               finishAfterBuffer();   
+          }, BUFFER_MS);
+          
+          timers.current.push(bufferTimer);
+          return "input"; // Stay in input
+      }
+
+      // Case C: Standard Fail (Incorrect or Incomplete after buffer used)
+      // Proceed to standard scoring (which will mark as wrong)
+      
       const correct =
         input.length === seq.length &&
         input.every((v, i) => v === seq[i]);
@@ -350,7 +384,7 @@ function GameContent() {
       setLastResult(correct ? "correct" : "wrong");
       if (correct) {
           setScore((s) => s + 1);
-          moveRabbitTo(10); // Run to bushes
+          moveRabbitTo(11); // Run to bushes
       }
 
       // Next round or done
@@ -371,6 +405,35 @@ function GameContent() {
       return "feedback";
     });
   };
+
+  const finishAfterBuffer = () => {
+       setPhase(prev => {
+           if (prev !== "input") return prev;
+           // Time is TRULY up now.
+           const input = inputRef.current;
+           const seq = sequenceRef.current;
+           const correct = input.length === seq.length && input.every((v, i) => v === seq[i]);
+           
+           setLastResult(correct ? "correct" : "wrong");
+           if (correct) {
+               setScore(s => s + 1);
+               moveRabbitTo(11);
+           }
+           
+           clearTimers();
+           timers.current.push(window.setTimeout(() => handleNextRound(), correct ? 1000 : 700));
+           return "feedback";
+       });
+  };
+  
+  const handleContinueGame = () => {
+      // User clicked "Continue" on "Focus" modal
+      setPhase("ready"); 
+      // Restart current round with new sequence
+      setTimeout(() => startRound(round), 50);
+  };
+
+
 
   const handleNextRound = () => {
       setRound(prevRound => {
@@ -398,7 +461,7 @@ function GameContent() {
     if (phase !== "input" || isEditing) return;
 
     // Is clickable?
-    if (stoneId === 0 || stoneId === 10) return;
+    if (stoneId === 0 || stoneId === 11) return;
 
     // Move Rabbit to clicked stone
     moveRabbitTo(stoneId);
@@ -428,7 +491,7 @@ function GameContent() {
             setLastResult("correct");
             setScore(s => s + 1);
             setPhase("feedback");
-            moveRabbitTo(10); // Success -> Run to bushes!
+            moveRabbitTo(11); // Success -> Run to bushes!
             clearTimers();
             timers.current.push(
                 window.setTimeout(() => handleNextRound(), 1000)
@@ -522,6 +585,7 @@ function GameContent() {
                     rabbit_path: {
                         score: score,
                         totalRounds: TOTAL_ROUNDS,
+                        roundsPlayed: round + 1,
                         timestamp: new Date().toISOString()
                     },
                     timestamp: new Date().toISOString()
@@ -542,7 +606,9 @@ function GameContent() {
 
   const handleGameControl = () => {
     if (phase === "ready") {
-       startRound(0);
+      setGameMsLeft(GAME_MAX_TIME_MS);
+      startRound(0);
+      // Start Global Timer
     } else {
        // Stop and Reset to Start
        clearTimers();
@@ -556,8 +622,27 @@ function GameContent() {
        setActiveStone(null);
        moveRabbitTo(0); // Go to start position
        setPhaseMsLeft(0);
+       setGameMsLeft(GAME_MAX_TIME_MS);
     }
   };
+
+  // Global Timer
+  useEffect(() => {
+    if (phase === "ready" || phase === "done") return;
+    
+    const interval = window.setInterval(() => {
+        setGameMsLeft(prev => {
+            if (prev <= 100) {
+                // TIME UP
+                setPhase("done");
+                return 0;
+            }
+            return prev - 100;
+        });
+    }, 100);
+    
+    return () => window.clearInterval(interval);
+  }, [phase]);
 
   const phaseLabel = useMemo(() => {
     if (phase === "ready") return "Ready";
@@ -620,7 +705,27 @@ function GameContent() {
       )}
 
 
-      <div className={`w-full max-w-5xl transition-all duration-500 flex flex-col items-center ${showVideo ? 'blur-sm scale-95 opacity-50' : 'blur-0 scale-100 opacity-100'}`}>
+      {/* PAUSE / TIMEOUT MODAL */}
+      {phase === "paused" && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
+             <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center border-4 border-yellow-400 shadow-2xl relative">
+                  <h2 className="text-3xl font-black text-yellow-500 mb-4">Please Focus! 🧐</h2>
+                  <p className="text-gray-600 mb-8 text-lg">
+                      It seems you're distracted. Ready to try again?
+                  </p>
+                  
+                  <button 
+                      onClick={handleContinueGame}
+                      className="px-8 py-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white text-xl font-bold shadow-lg transition-transform active:scale-95"
+                  >
+                      Continue Game
+                  </button>
+             </div>
+        </div>
+      )}
+
+      {/* Main Game Container */}
+      <div className={`w-full max-w-[80%] transition-all duration-500 flex flex-col items-center ${showVideo ? 'blur-sm scale-95 opacity-50' : 'blur-0 scale-100 opacity-100'}`}>
         {/* Top HUD */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3 w-full">
           <div className="flex items-center gap-3">
@@ -632,16 +737,23 @@ function GameContent() {
               🏠 <span className="hidden sm:inline">Home</span>
             </button>
 
-            <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
+            {/* <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
               <div className="text-xs opacity-80">Round</div>
               <div className="text-lg font-semibold">
                 {Math.min(round + (phase === "ready" ? 0 : 1), TOTAL_ROUNDS)} / {TOTAL_ROUNDS}
               </div>
-            </div>
+            </div> */}
 
-            <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
+            {/* <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
               <div className="text-xs opacity-80">Score</div>
               <div className="text-lg font-semibold">{score}</div>
+            </div> */}
+
+            <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
+               <div className="text-xs opacity-80">Total Time</div>
+               <div className={`text-lg font-semibold ${gameMsLeft < 30000 ? 'text-red-400 animate-pulse' : ''}`}>
+                 {Math.floor(gameMsLeft / 1000)}s
+               </div>
             </div>
 
             <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
@@ -728,12 +840,12 @@ function GameContent() {
           {/* Stones as clickable hotspots */}
           {stonesState.map((s) => {
             const isActive = activeStone === s.id && phase === "show";
-            const isClickable = phase === "input" && !isEditing && s.id !== 0 && s.id !== 10; // 0 and 10 not clickable
+            const isClickable = phase === "input" && !isEditing && s.id !== 0 && s.id !== 11; // 0 and 11 not clickable
             const wasClicked = playerInput.includes(s.id);
             const isBeingDragged = draggingId === s.id;
             
             // Special styling for Start/End in Editor
-            const isStartOrEnd = s.id === 0 || s.id === 10;
+            const isStartOrEnd = s.id === 0 || s.id === 11;
 
             return (
               <div 
@@ -779,7 +891,7 @@ function GameContent() {
                   >
                     {(debugNumbers || isEditing) && (
                       <span className="text-xs font-bold text-white drop-shadow-md bg-black/50 px-1 rounded pointer-events-none">
-                        {s.id === 0 ? "START" : s.id === 10 ? "END" : s.id}
+                        {s.id === 0 ? "START" : s.id === 11 ? "END" : s.id}
                       </span>
                     )}
                   </button>
