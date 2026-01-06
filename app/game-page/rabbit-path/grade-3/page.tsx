@@ -64,30 +64,36 @@ const generateClass3Sequence = (
          }
     }
 
-    // GENERATE SEQUENCE WITH NO CONSECUTIVES
-    // Constraint: No |a - b| == 1 for any sorted neighbors? 
-    // Or just no immediate neighbors in the random pick?
-    // "no consecutives" likely means IDs 1,2 is invalid. IDs 1,3 is valid.
+    // GENERATE SEQUENCE
+    // Constraint: 
+    // - Length < 5: No consecutive numbers allowed.
+    // - Length == 5: Allow at most 1 pair of consecutives (e.g. 2,3 is ok).
     
     const validIds = stones.filter(s => s.id !== 0 && s.id !== 11).map(s => s.id); // [1..10]
     
-    // We need to pick 'length' IDs such that no two IDs satisfy abs(a-b) == 1.
-    // Simple rejection sampling (infinite loop protection)
     let candidates: number[] = [];
     let attempts = 0;
     while(attempts < 500) {
         const potential = shuffle(validIds).slice(0, length).sort((a,b) => a - b);
         
-        // Check consecutives
-        let hasConsecutive = false;
+        // Count consecutive pairs
+        let consecutivePairs = 0;
         for (let i = 0; i < potential.length - 1; i++) {
             if (potential[i+1] === potential[i] + 1) {
-                hasConsecutive = true;
-                break;
+                consecutivePairs++;
             }
         }
         
-        if (!hasConsecutive) {
+        let isValid = false;
+        if (length === 5) {
+             // Allow 1 pair
+             if (consecutivePairs <= 1) isValid = true;
+        } else {
+             // Strict no consecutives
+             if (consecutivePairs === 0) isValid = true;
+        }
+        
+        if (isValid) {
             candidates = potential;
             break;
         }

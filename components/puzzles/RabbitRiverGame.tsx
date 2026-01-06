@@ -380,6 +380,35 @@ export default function RabbitRiverGame({
       setTimeout(() => startRound(round), 50);
   };
 
+  const handleGameControl = () => {
+    if (phase === "ready") {
+      // Start!
+      if (isTrial) {
+          startRound(0); // Start Trial Round 0
+      } else {
+          setGameMsLeft(GAME_MAX_TIME_MS);
+          startRound(0); // Start Game Round 0
+      }
+    } else {
+       // Stop and Reset to Start (Default to Trial Mode?)
+       // If user clicks "Restart" during game, reset everything
+       clearTimers();
+       setIsTrial(true);
+       setPhase("ready");
+       setRound(0);
+       setTrialRound(0);
+       setScore(0);
+       setSequence([]);
+       sequenceRef.current = [];
+       setPlayerInput([]);
+       inputRef.current = [];
+       setActiveStone(null);
+       moveRabbitTo(0); 
+       setPhaseMsLeft(0);
+       setGameMsLeft(GAME_MAX_TIME_MS);
+    }
+  };
+
   // Timers and Cleanup
   useEffect(() => {
     if (phase !== "show" && phase !== "input") return;
@@ -524,7 +553,7 @@ export default function RabbitRiverGame({
             <div className="flex items-center gap-2">
                 {isDev && <button className={`px-3 py-2 rounded-2xl transition font-bold ${isEditing ? 'bg-yellow-500 text-black' : 'bg-white/10'}`} onClick={() => setIsEditing(e => !e)}>{isEditing ? "Done" : "Edit"}</button>}
                 <button className="px-3 py-2 rounded-2xl bg-white/10" onClick={() => setDebugNumbers(d => !d)}>{debugNumbers ? "Hide #'s" : "Show #'s"}</button>
-                <button className="px-5 py-2 rounded-2xl bg-emerald-500 font-semibold" onClick={() => setPhase(prev => prev === "ready" ? "ready" : "ready")} onMouseDown={handleStartGameClick}>{phase === "ready" ? (isTrial ? "Start Trial" : "Start Game") : "Restart"}</button>
+                <button className="px-5 py-2 rounded-2xl bg-emerald-500 font-semibold" onClick={handleGameControl}>{phase === "ready" ? (isTrial ? "Start Trial" : "Start Game") : "Restart"}</button>
             </div>
         </div>
 
