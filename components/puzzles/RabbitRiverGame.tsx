@@ -584,7 +584,7 @@ export default function RabbitRiverGame({
                 <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur">
                     <div className="px-6 py-4 rounded-3xl bg-black/60 text-center border border-white/10">
                         <div className="text-2xl font-semibold">Time’s up</div>
-                        <div className="mt-2 text-base">Score: {score} / {totalRounds}</div>
+                        <div className="mt-2 text-base">Congratulation's {studentName} you have completed the game !</div>
                         <button onClick={() => router.push('/')} className="mt-4 bg-white text-black font-bold py-2 px-6 rounded-full hover:bg-gray-200">Return Home</button>
                     </div>
                 </div>
