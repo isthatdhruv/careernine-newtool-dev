@@ -5,10 +5,18 @@ import { useRouter } from "next/navigation";
 
 export default function Home() {
   const [name, setName] = useState("");
+  const [selectedClass, setSelectedClass] = useState<string>("3");
   const router = useRouter();
 
   const handlePlay = (gamePath: string) => {
     if (name.trim()) {
+      // For Rabbit Path, we redirect to grade-specific page if it's the rabbit game
+      if (gamePath.includes("rabbit-path")) {
+          const target = `/game-page/rabbit-path/grade-${selectedClass}?name=${encodeURIComponent(name)}`;
+          router.push(target);
+          return;
+      }
+
       const separator = gamePath.includes("?") ? "&" : "?";
       router.push(`${gamePath}${separator}name=${encodeURIComponent(name)}`);
     }
@@ -24,25 +32,43 @@ export default function Home() {
       </div>
 
       {/* Header Section */}
-      <div className="z-10 w-full max-w-4xl text-center mb-12 mt-8">
+      <div className="z-10 w-full max-w-4xl text-center mb-8 mt-4">
         <h1 className="text-5xl md:text-6xl font-extrabold text-green-900 mb-4 drop-shadow-sm tracking-tight">
           Jungle Games Assessment
         </h1>
         <p className="text-green-800 text-xl font-medium opacity-90">
-          Enter your name and choose an adventure!
+          Enter your name, choose your class, and start the adventure!
         </p>
       </div>
 
-      {/* Name Input Section */}
-      <div className="z-10 w-full max-w-md mb-12">
-        <div className="bg-white/40 backdrop-blur-md rounded-2xl p-2 shadow-xl border-2 border-green-200/50">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter Child's Name"
-              className="w-full px-6 py-4 rounded-xl text-xl text-center font-bold text-green-900 placeholder:text-green-800/50 bg-white/60 border-2 border-transparent focus:border-yellow-400 focus:outline-none transition-all shadow-inner"
-            />
+      {/* Inputs Section (Name + Class) */}
+      <div className="z-10 w-full max-w-2xl mb-12 flex flex-col md:flex-row gap-4 justify-center">
+        {/* Name Input */}
+        <div className="flex-1">
+            <div className="bg-white/40 backdrop-blur-md rounded-2xl p-2 shadow-xl border-2 border-green-200/50">
+                <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter Child's Name"
+                className="w-full px-6 py-4 rounded-xl text-xl text-center font-bold text-green-900 placeholder:text-green-800/50 bg-white/60 border-2 border-transparent focus:border-yellow-400 focus:outline-none transition-all shadow-inner"
+                />
+            </div>
+        </div>
+
+        {/* Class Selection */}
+        <div className="flex-1 md:max-w-xs">
+             <div className="bg-white/40 backdrop-blur-md rounded-2xl p-2 shadow-xl border-2 border-green-200/50 h-full">
+                <select
+                    value={selectedClass}
+                    onChange={(e) => setSelectedClass(e.target.value)}
+                    className="w-full h-full px-6 py-4 rounded-xl text-xl text-center font-bold text-green-900 bg-white/60 border-2 border-transparent focus:border-yellow-400 focus:outline-none transition-all shadow-inner cursor-pointer appearance-none"
+                >
+                    <option value="3">Class 3</option>
+                    <option value="4">Class 4</option>
+                    <option value="5">Class 5</option>
+                </select>
+             </div>
         </div>
       </div>
 
@@ -81,11 +107,11 @@ export default function Home() {
                 Watch carefully where the rabbit jumps, then show us the path it took!
             </p>
             <button
-                onClick={() => handlePlay("/game-page/rabbit-path")}
+                onClick={() => handlePlay("rabbit-path")}
                 disabled={!name.trim()}
                 className="w-full bg-blue-500 hover:bg-blue-400 text-white disabled:opacity-50 disabled:cursor-not-allowed text-xl font-black py-4 rounded-2xl shadow-[0_4px_0_rgb(29,78,216)] hover:shadow-[0_2px_0_rgb(29,78,216)] active:shadow-none active:translate-y-[4px] transition-all uppercase tracking-wider"
             >
-                Play Rabbit's Path
+                Play Rabbit's Path (Class {selectedClass})
             </button>
         </div>
 
