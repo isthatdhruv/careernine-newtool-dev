@@ -320,7 +320,14 @@ export default function RabbitRiverGame({
       }
 
       clearTimers();
-      timers.current.push(window.setTimeout(() => handleNextRound(), correct ? 1000 : 700));
+      
+      if (isTrial && !correct) {
+          // If Trial is wrong, retry the SAME round (do not advance)
+          timers.current.push(window.setTimeout(() => startRound(trialRound), 1500));
+      } else {
+          // Advance if correct OR if it's the main game (main game always advances)
+          timers.current.push(window.setTimeout(() => handleNextRound(), correct ? 1000 : 700));
+      }
   };
 
   const handleNextRound = () => {
@@ -370,7 +377,10 @@ export default function RabbitRiverGame({
     } else {
         // Correct step
         if (nextInput.length === seq.length) {
-            evaluateAndAdvance(nextInput, seq); // Will succeed
+            // Wait for rabbit to land on final stone before moving to End
+            setTimeout(() => {
+                evaluateAndAdvance(nextInput, seq); // Will succeed
+            }, 500);
         }
     }
   };
