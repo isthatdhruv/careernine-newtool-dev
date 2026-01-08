@@ -254,7 +254,7 @@ function GameContent() {
       const next: Score = {
         ...s,
         hits: s.hits + 1,
-        hitRTs: [...s.hitRTs, Math.max(0, rt)],
+        hitRTs: [...s.hitRTs, Math.round(Math.max(0, rt) * 100) / 100],
       };
       scoreRef.current = next;
       setScore(next);
