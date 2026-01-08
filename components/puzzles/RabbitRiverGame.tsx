@@ -34,10 +34,12 @@ interface RabbitRiverGameProps {
     sequenceGenerator: (
         stones: StonePos[],
         roundIndex: number,
-        history: RoundResult[]
+        history: RoundResult[],
+        isTrial: boolean
     ) => number[];
     // Optional overrides
     isTrialEnabled?: boolean;
+    reverseInput?: boolean;
 }
 
 const DEFAULT_STONES: StonePos[] = [
@@ -76,7 +78,8 @@ export default function RabbitRiverGame({
     className,
     totalRounds = 12,
     sequenceGenerator,
-    isTrialEnabled = true
+    isTrialEnabled = true,
+    reverseInput = false
 }: RabbitRiverGameProps) {
   
   // Video State
@@ -109,6 +112,7 @@ export default function RabbitRiverGame({
   // Refs
   const sequenceRef = useRef<number[]>([]);
   const inputRef = useRef<number[]>([]);
+  const historyRef = useRef<RoundResult[]>([]); // Ref to avoid stale closures in timeouts
   const timers = useRef<number[]>([]);
   const router = useRouter();
 
@@ -199,26 +203,11 @@ export default function RabbitRiverGame({
     setPlayerInput([]);
     inputRef.current = [];
     setBufferActivated(false);
-    moveRabbitTo(0);
+    moveRabbitTo(0); // Always start from Home (0) for SHOW phase
 
     // GENERATE SEQUENCE
-    // If trial, we might want a simple random sequence? Or use the generator?
-    // Let's assume generator handles trial logic if we pass a flag or negative index?
-    // Or just use a simple internal default for trials?
-    // The requirement was: "random sequence for each trial round".
-    // Let's implement simple trial logic here or ask the generator to handle it.
-    // Ideally, the generator is the brain. Let's pass 'isTrial' context via roundIndex?
-    // Or just simple explicit logic for trials here.
-    
-    let seq: number[] = [];
-    if (isTrial) {
-        // Simple random sequence of length 3 for trials
-        const allIds = stonesState.filter(s => s.id !== 0 && s.id !== 11).map(s => s.id);
-        const sub = shuffle(allIds).slice(0, 3);
-        seq = sub.sort((a,b) => a - b);
-    } else {
-        seq = sequenceGenerator(stonesState, nextRoundIndex, history);
-    }
+    // Use historyRef.current to get the latest history including the just-finished round
+    const seq = sequenceGenerator(stonesState, nextRoundIndex, historyRef.current, isTrial);
 
     setSequence(seq);
     sequenceRef.current = seq;
@@ -229,6 +218,7 @@ export default function RabbitRiverGame({
     // Animation Timing
     const stepMs = Math.floor(ROUND_SHOW_MS / (seq.length + 2));
     
+    // Animation Sequence: ALWAYS FORWARD for "Show" phase
     timers.current.push(window.setTimeout(() => moveRabbitTo(0), 100));
 
     seq.forEach((stoneId, idx) => {
@@ -238,7 +228,7 @@ export default function RabbitRiverGame({
         }, (idx + 1) * stepMs));
     });
 
-    // Jump to End
+    // Jump to End (11)
     timers.current.push(window.setTimeout(() => {
         setActiveStone(null);
         moveRabbitTo(11);
@@ -249,7 +239,13 @@ export default function RabbitRiverGame({
         setPhase("input");
         setPhaseMsLeft(ROUND_INPUT_MS);
         setActiveStone(null);
-        moveRabbitTo(0);
+        
+        // Setup Start Position for INPUT phase
+        if (reverseInput) {
+            moveRabbitTo(11); // Reverse: Start input at End
+        } else {
+            moveRabbitTo(0);  // Normal: Start input at Start
+        }
     }, ROUND_SHOW_MS));
 
     // Auto-End Input
@@ -278,7 +274,8 @@ export default function RabbitRiverGame({
       }
 
       // Case B: Partial Correct -> BUFFER
-      const isPartialCorrect = input.length > 0 && input.every((v, i) => v === seq[i]);
+      const targetSeq = reverseInput ? [...seq].reverse() : seq;
+      const isPartialCorrect = input.length > 0 && input.every((v, i) => v === targetSeq[i]);
       if (isPartialCorrect && !bufferActivated) {
           setBufferActivated(true);
           setPhaseMsLeft(BUFFER_MS);
@@ -301,22 +298,32 @@ export default function RabbitRiverGame({
   };
   
   const evaluateAndAdvance = (input: number[], seq: number[]) => {
-      const correct = input.length === seq.length && input.every((v, i) => v === seq[i]);
+      const targetSeq = reverseInput ? [...seq].reverse() : seq;
+      const correct = input.length === targetSeq.length && input.every((v, i) => v === targetSeq[i]);
       setLastResult(correct ? "correct" : "wrong");
 
       if (correct) {
           if (!isTrial) setScore(s => s + 1);
-          moveRabbitTo(11);
+          // Success Action:
+          if (reverseInput) {
+              moveRabbitTo(0); // Reverse: Success means reached Home
+          } else {
+              moveRabbitTo(11); // Normal: Success means reached End
+          }
       }
+
+      // ... (rest same)
 
       // Record History (Only for non-trials)
       if (!isTrial) {
-          setHistory(prev => [...prev, {
+          const newResult = {
               round: round,
               sequence: seq,
               input: input,
               correct: correct
-          }]);
+          };
+          setHistory(prev => [...prev, newResult]);
+          historyRef.current = [...historyRef.current, newResult]; // Sync ref immediately
       }
 
       clearTimers();
@@ -370,13 +377,16 @@ export default function RabbitRiverGame({
 
     const idx = nextInput.length - 1;
     const seq = sequenceRef.current;
+    
+    // Determine target based on mode
+    const targetSeq = reverseInput ? [...seq].reverse() : seq;
 
     // Immediate Wrong Check
-    if (stoneId !== seq[idx]) {
+    if (stoneId !== targetSeq[idx]) {
         evaluateAndAdvance(nextInput, seq); // Will fail
     } else {
         // Correct step
-        if (nextInput.length === seq.length) {
+        if (nextInput.length === targetSeq.length) {
             // Wait for rabbit to land on final stone before moving to End
             setTimeout(() => {
                 evaluateAndAdvance(nextInput, seq); // Will succeed
@@ -549,9 +559,17 @@ export default function RabbitRiverGame({
                        <span className="text-lg font-semibold text-yellow-400">Round {trialRound + 1} / 2</span>
                    </div>
                 ) : (
-                    <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
-                       <span className="text-xs opacity-80 block">Time</span>
-                       <span className={`text-lg font-semibold ${gameMsLeft < 30000 ? 'text-red-400 animate-pulse' : ''}`}>{Math.floor(gameMsLeft / 1000)}s</span>
+                    <div className="flex gap-2">
+                        {reverseInput && (
+                             <div className="px-3 py-2 rounded-2xl bg-purple-500/20 backdrop-blur border border-purple-400/50 animate-pulse">
+                                <span className="text-xs text-purple-200 font-bold uppercase tracking-widest block">Input</span>
+                                <span className="text-lg font-semibold text-purple-300">Reverse</span>
+                             </div>
+                        )}
+                        <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">
+                            <span className="text-xs opacity-80 block">Time</span>
+                            <span className={`text-lg font-semibold ${gameMsLeft < 30000 ? 'text-red-400 animate-pulse' : ''}`}>{Math.floor(gameMsLeft / 1000)}s</span>
+                        </div>
                     </div>
                 )}
                 <div className="px-3 py-2 rounded-2xl bg-white/10 backdrop-blur">

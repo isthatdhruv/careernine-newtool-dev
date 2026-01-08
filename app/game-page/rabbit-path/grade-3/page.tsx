@@ -14,54 +14,43 @@ import RabbitRiverGame, { StonePos, RoundResult, shuffle } from "@/components/pu
 const generateClass3Sequence = (
     stones: StonePos[], 
     roundIndex: number, 
-    history: RoundResult[]
+    history: RoundResult[],
+    isTrial: boolean
 ): number[] => {
     
     // Determine Target Length
     let length = 3;
 
-    // Check Set 1 (Rounds 0, 1, 2) Performance
-    const set1Passed = history.filter(h => h.round >= 0 && h.round <= 2 && h.correct).length === 3;
-    
-    if (roundIndex >= 3) {
-        if (set1Passed) {
-             length = 4;
-        }
-    }
+    if (isTrial) {
+        length = 3;
+    } else {
+        // Main Game Logic
+        // Set 1: Rounds 0-3 (4 rounds)
+        // Set 2: Rounds 4-7 (4 rounds)
+        // Set 3: Rounds 8-11 (4 rounds)
 
-    // Check Set 2 (Rounds 3, 4, 5) Performance
-    // To advance to 5, must have passed Set 2 AND Set 2 must have been played at Length 4
-    // (If they failed Set 1, they played Set 2 at Length 3, so even if they ace it, maybe we only upgrade to 4? 
-    // The requirement says: "if students also corrects all 3 rounds with 4 length, it will be upgraded to 5")
+        // Check Set 1 Performance
+        const set1Passed = history.filter(h => h.round >= 0 && h.round <= 3 && h.correct).length === 4;
+        
+        if (roundIndex >= 4) {
+            if (set1Passed) {
+                 length = 4;
+            }
+        }
     
-    // So: 
-    // If currently at Length 4 (due to Set 1 Pass) AND Set 2 Passed -> Length 5.
-    // If currently at Length 3 (due to Set 1 Fail) AND Set 2 Passed -> Length 4? (User didn't specify recovery, but safe assumption).
-    // Let's stick strictly to "If Set 1 Correct -> Length 4", "If Set 2 (at Length 4) Correct -> Length 5".
-    
-    if (roundIndex >= 6) {
-         const set2Passed = history.filter(h => h.round >= 3 && h.round <= 5 && h.correct).length === 3;
-         // Did we play Set 2 at Length 4? That implies Set 1 was passed.
-         if (set1Passed && set2Passed) {
-             length = 5;
-         } else if (set1Passed && !set2Passed) {
-             length = 4; // Stay at 4
-         } else if (!set1Passed && set2Passed) {
-             length = 4; // Promotion from 3 to 4? Assuming yes.
-         } else {
-             length = 3;
-         }
-    }
-    
-    // Rounds 9+ (Set 4) - continue with same logic (Max 5)
-    if (roundIndex >= 9) {
-         const set3Passed = history.filter(h => h.round >= 6 && h.round <= 8 && h.correct).length === 3;
-         // If we were at 5, stay at 5.
-         if (length === 5) {
-             // Stay 5
-         } else if (length === 4 && set3Passed) {
-             length = 5;
-         }
+        // Check Set 2 Performance
+        if (roundIndex >= 8) {
+             const set2Passed = history.filter(h => h.round >= 4 && h.round <= 7 && h.correct).length === 4;
+             if (set1Passed && set2Passed) {
+                 length = 5;
+             } else if (set1Passed && !set2Passed) {
+                 length = 4; // Stay at 4
+             } else if (!set1Passed && set2Passed) {
+                 length = 4; // Promotion from 3 to 4
+             } else {
+                 length = 3;
+             }
+        }
     }
 
     // GENERATE SEQUENCE
