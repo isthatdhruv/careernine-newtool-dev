@@ -1,264 +1,491 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
-import { collection, doc, setDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
-
-type AnimalType = "leopard" | "monkey" | "snake" | "parrot";
-
-const ANIMALS: AnimalType[] = ["leopard", "monkey", "snake", "parrot"];
-const TOTAL_ROUNDS = 40;
-const ANIMALS_PER_TYPE = 10;
-const DISPLAY_DURATION = 1500; // 1.5 seconds
-
 import { Suspense } from "react";
+
+type AnimalType = "lion" | "elephant" | "rhino" | "deer" | "tiger";
+
+const ANIMALS: AnimalType[] = ["lion", "elephant", "rhino", "deer", "tiger"];
+
+const TOTAL_TRIALS = 120;
+const TRIAL_MS = 1000; // 1 second per trial
+const IMAGES_PER_ANIMAL = 5;
+
+// Balanced deck: 24 of each animal = 120 trials
+const PER_ANIMAL = TOTAL_TRIALS / ANIMALS.length; // 24
+
+type Trial = {
+  animal: AnimalType;
+  variant: number; // 1..5
+};
+
+type Score = {
+  hits: number;
+  misses: number;
+  falsePositives: number;
+  hitRTs: number[]; // ms
+};
+
+function getImageSrc(animal: AnimalType, variant: number) {
+  // CHANGE THIS if your filenames differ:
+  // Example expected: /assets/game/lion_1.png ... lion_5.png
+  return `/assets/game/${animal}_${variant}.webp`;
+}
+
+function shuffleInPlace<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function mean(nums: number[]) {
+  if (!nums.length) return 0;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+function median(nums: number[]) {
+  if (!nums.length) return 0;
+  const a = [...nums].sort((x, y) => x - y);
+  const m = (a.length / 2) | 0;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
 
 function GameContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+
   const userName = searchParams.get("name") || "Explorer";
   const mode = searchParams.get("mode"); // "sequence" or null
 
-  const [gameStarted, setGameStarted] = useState(false);
+  // UI state (kept minimal to avoid re-render noise)
+  const [ready, setReady] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const [animalQueue, setAnimalQueue] = useState<AnimalType[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(-1);
-  const [score, setScore] = useState({
-    leopardsShown: 0,
-    leopardsClicked: 0,
-    falseAlarms: 0,
+  const [trialIndex, setTrialIndex] = useState(-1);
+  const [currentSrc, setCurrentSrc] = useState<string>("");
+
+  const [score, setScore] = useState<Score>({
+    hits: 0,
+    misses: 0,
+    falsePositives: 0,
+    hitRTs: [],
   });
 
-  // Refs for tracking synchronous state during rapid events
-  const currentAnimalRef = useRef<AnimalType | null>(null);
-  const hasClickedRef = useRef(false);
-
-  // Initialize Game
-  useEffect(() => {
-    // Create deck: 10 of each animal
-    const deck: AnimalType[] = [];
-    ANIMALS.forEach((animal) => {
-      for (let i = 0; i < ANIMALS_PER_TYPE; i++) {
-        deck.push(animal);
+  // Trials generated once
+  const trials: Trial[] = useMemo(() => {
+    const deck: Trial[] = [];
+    for (const animal of ANIMALS) {
+      for (let i = 0; i < PER_ANIMAL; i++) {
+        const variant = 1 + ((Math.random() * IMAGES_PER_ANIMAL) | 0);
+        deck.push({ animal, variant });
       }
-    });
-
-    // Shuffle (Fisher-Yates)
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
     }
-
-    setAnimalQueue(deck);
-    setGameStarted(true);
-    
-    // Start the loop after a small delay
-    const timer = setTimeout(() => {
-        nextRound();
-    }, 1000);
-
-    return () => clearTimeout(timer);
+    shuffleInPlace(deck);
+    // ensure exact length
+    return deck.slice(0, TOTAL_TRIALS);
   }, []);
 
-  const nextRound = useCallback(() => {
-    setCurrentIndex((prev) => {
-      const next = prev + 1;
-      if (next >= TOTAL_ROUNDS) {
-        setGameOver(true);
-        return prev;
+  // Refs for timing-accurate logic (no dependency on React state timing)
+  const rafRef = useRef<number | null>(null);
+  const startRef = useRef<number>(0);
+  const nextSwitchRef = useRef<number>(0);
+  const currentTrialRef = useRef<Trial | null>(null);
+  const currentIndexRef = useRef<number>(-1);
+
+  const clickedThisTrialRef = useRef<boolean>(false);
+  const onsetRef = useRef<number>(0); // performance.now() at stimulus onset
+  const hasStartedRef = useRef<boolean>(false); // prevent effect re-run from resetting score
+
+  // refs for score updates without stale closure
+  const scoreRef = useRef<Score>(score);
+
+  // Preload all possible images (25) BEFORE starting
+  useEffect(() => {
+    let cancelled = false;
+
+    const preload = async () => {
+      const srcs: string[] = [];
+      for (const a of ANIMALS) {
+        for (let v = 1; v <= IMAGES_PER_ANIMAL; v++) {
+          srcs.push(getImageSrc(a, v));
+        }
       }
-      
-      hasClickedRef.current = false;
-      return next;
-    });
+
+      await Promise.all(
+        srcs.map(
+          (src) =>
+            new Promise<void>((resolve) => {
+              const img = new window.Image();
+              img.onload = () => resolve();
+              img.onerror = () => resolve(); // don't block forever
+              img.src = src;
+            })
+        )
+      );
+
+      if (!cancelled) setReady(true);
+    };
+
+    preload();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Update ref when index changes
-  useEffect(() => {
-    if (currentIndex >= 0 && currentIndex < animalQueue.length) {
-      currentAnimalRef.current = animalQueue[currentIndex];
-      
-      // Auto advance timer
-      const timer = setTimeout(() => {
-        nextRound();
-      }, DISPLAY_DURATION);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [currentIndex, animalQueue, nextRound]);
+  const stopLoop = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+  }, []);
 
-  // Handle Input
+  const endGame = useCallback(() => {
+    stopLoop();
+
+    // finalize miss on last trial if needed
+    const idx = currentIndexRef.current;
+    if (idx >= 0 && idx < TOTAL_TRIALS) {
+      const t = trials[idx];
+      if (t?.animal === "lion" && !clickedThisTrialRef.current) {
+        const s = scoreRef.current;
+        const next: Score = { ...s, misses: s.misses + 1 };
+        scoreRef.current = next;
+        setScore(next);
+      }
+    }
+
+    setGameOver(true);
+  }, [stopLoop, trials]);
+
+  const advanceTrial = useCallback(
+    (now: number) => {
+      const prevIdx = currentIndexRef.current;
+      if (prevIdx >= 0 && prevIdx < TOTAL_TRIALS) {
+        const prevTrial = trials[prevIdx];
+        // If target trial (lion) ended without a click => miss
+        if (prevTrial.animal === "lion" && !clickedThisTrialRef.current) {
+          const s = scoreRef.current;
+          const next: Score = { ...s, misses: s.misses + 1 };
+          scoreRef.current = next;
+          setScore(next);
+        }
+      }
+
+      const nextIdx = prevIdx + 1;
+      if (nextIdx >= TOTAL_TRIALS) {
+        endGame();
+        return;
+      }
+
+      currentIndexRef.current = nextIdx;
+      setTrialIndex(nextIdx);
+
+      const t = trials[nextIdx];
+      currentTrialRef.current = t;
+
+      clickedThisTrialRef.current = false;
+      onsetRef.current = now;
+
+      // update image
+      setCurrentSrc(getImageSrc(t.animal, t.variant));
+    },
+    [trials, endGame]
+  );
+
+  const loop = useCallback(
+    (now: number) => {
+      if (gameOver) return;
+
+      // first tick: start trial 0
+      if (currentIndexRef.current === -1) {
+        startRef.current = now;
+        nextSwitchRef.current = now;
+        advanceTrial(now);
+        nextSwitchRef.current = now + TRIAL_MS;
+      } else if (now >= nextSwitchRef.current) {
+        // move to next trial, keeping boundaries stable
+        // (avoid accumulating drift by stepping in multiples)
+        while (now >= nextSwitchRef.current) {
+          nextSwitchRef.current += TRIAL_MS;
+        }
+        advanceTrial(now);
+      }
+
+      rafRef.current = requestAnimationFrame(loop);
+    },
+    [advanceTrial, gameOver]
+  );
+
+  // start the loop once ready
+  useEffect(() => {
+    if (!ready) return;
+    // Prevent this effect from resetting score when loop callback changes due to gameOver
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+
+    setGameOver(false);
+    setScore({ hits: 0, misses: 0, falsePositives: 0, hitRTs: [] });
+    scoreRef.current = { hits: 0, misses: 0, falsePositives: 0, hitRTs: [] };
+
+    rafRef.current = requestAnimationFrame(loop);
+
+    return () => stopLoop();
+  }, [ready, loop, stopLoop]);
+
+  // Input handler (pointerdown is faster/cleaner than click)
   const handleInput = useCallback(() => {
-    if (gameOver || currentIndex < 0 || hasClickedRef.current) return;
+    if (!ready || gameOver) return;
+    if (currentIndexRef.current < 0) return;
+    if (clickedThisTrialRef.current) return;
 
-    hasClickedRef.current = true;
-    const currentAnimal = currentAnimalRef.current;
+    clickedThisTrialRef.current = true;
 
-    setScore((prev) => {
-      if (currentAnimal === "leopard") {
-        return { ...prev, leopardsClicked: prev.leopardsClicked + 1 };
-      } else {
-        return { ...prev, falseAlarms: prev.falseAlarms + 1 };
-      }
-    });
-  }, [gameOver, currentIndex]);
+    const t = currentTrialRef.current;
+    if (!t) return;
 
+    const clickTime = performance.now();
+    const rt = clickTime - onsetRef.current;
+
+    const s = scoreRef.current;
+
+    if (t.animal === "lion") {
+      const next: Score = {
+        ...s,
+        hits: s.hits + 1,
+        hitRTs: [...s.hitRTs, Math.max(0, rt)],
+      };
+      scoreRef.current = next;
+      setScore(next);
+    } else {
+      const next: Score = { ...s, falsePositives: s.falsePositives + 1 };
+      scoreRef.current = next;
+      setScore(next);
+    }
+  }, [ready, gameOver]);
+
+  // Spacebar support
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space") {
-        e.preventDefault(); // Prevent scrolling
+        e.preventDefault();
         handleInput();
       }
     };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    return () => window.removeEventListener("keydown", onKeyDown as any);
   }, [handleInput]);
 
-
-  // Current tracking for calculating "Shown" count safely
-  // It's just (currentIndex + 1) or loop through queue to see how many leopards passed
-  const calculateFinalStats = () => {
-     let shown = 0;
-     for(let i=0; i < animalQueue.length; i++) {
-         if (animalQueue[i] === 'leopard') shown++;
-     }
-     return shown;
-  };
-
-  // Save results when game ends
+  // Save results on gameOver
   useEffect(() => {
-    if (gameOver) {
-      const saveResult = async () => {
-        try {
-          // Normalize name to create a consistent ID (lowercase, trimmed)
-          // This ensures "Dhruv" and "dhruv " map to the same user record.
-          const normalizedId = userName.trim().toLowerCase();
-          
-          await setDoc(doc(db, "game_results", normalizedId), {
-            name: userName, // Keep original casing for display
-            jungle_spot: {
-                leopardsShown: calculateFinalStats(),
-                leopardsClicked: score.leopardsClicked,
-                falseAlarms: score.falseAlarms,
-                timestamp: new Date().toISOString()
+    if (!gameOver) return;
+
+    const saveResult = async () => {
+      try {
+        const normalizedId = userName.trim().toLowerCase();
+
+        const final = scoreRef.current;
+        // const rtMean = mean(final.hitRTs);
+        // const rtMedian = median(final.hitRTs);
+
+        // count how many lions were shown
+        const lionsShown = trials.reduce(
+          (acc, t) => acc + (t.animal === "lion" ? 1 : 0),
+          0
+        );
+
+        await setDoc(
+          doc(db, "game_results", normalizedId),
+          {
+            name: userName,
+            animal_reaction: {
+              totalTrials: TOTAL_TRIALS,
+              trialMs: TRIAL_MS,
+              target: "lion",
+              targetsShown: lionsShown,
+              hits: final.hits,
+              misses: final.misses,
+              falsePositives: final.falsePositives,
+              hitRTsMs: final.hitRTs, // keep if you want raw
+              timestamp: new Date().toISOString(),
             },
-            timestamp: new Date().toISOString() // Update overall modified time
-          }, { merge: true });
-          
-          console.log("Score saved!");
-        } catch (e) {
-          console.error("Error adding document: ", e);
-        }
-      };
-      saveResult();
-    }
-  }, [gameOver, userName, score]);
+            timestamp: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch (e) {
+        console.error("Error saving result:", e);
+      }
+    };
+
+    saveResult();
+  }, [gameOver, trials, userName]);
+
+  const handleRestart = () => window.location.reload();
+  const handleExit = () => router.push("/");
+
+  if (!ready) {
+    return (
+      <main className="min-h-screen bg-green-600 flex items-center justify-center text-white text-3xl font-bold">
+        Loading assets...
+      </main>
+    );
+  }
 
   if (gameOver) {
+    const final = scoreRef.current;
+    const lionsShown = trials.reduce(
+      (acc, t) => acc + (t.animal === "lion" ? 1 : 0),
+      0
+    );
+
     return (
       <main className="min-h-screen bg-green-500 flex flex-col items-center justify-center p-4 relative overflow-hidden">
         <div className="z-10 bg-white/90 backdrop-blur-md rounded-3xl p-8 shadow-2xl border-4 border-yellow-400 max-w-md w-full text-center">
-            <h1 className="text-4xl font-extrabold text-green-900 mb-6">Great Job, {userName}!</h1>
-            
-            <div className="space-y-4 mb-8 text-xl font-bold text-green-800">
-                <div className="bg-green-100 p-4 rounded-xl flex justify-between">
-                    <span>Leopards Spotted:</span>
-                    <span className="text-2xl text-green-600">{score.leopardsClicked} / 10</span>
-                </div>
-                {score.falseAlarms > 0 && (
-                 <div className="bg-red-50 p-4 rounded-xl flex justify-between text-red-800">
-                    <span>Oopsies:</span>
-                    <span className="text-2xl">{score.falseAlarms}</span>
-                </div>
-                )}
+          <h1 className="text-4xl font-extrabold text-green-900 mb-6">
+            Done, {userName}
+          </h1>
+
+          <div className="space-y-3 mb-6 text-lg font-bold text-green-800">
+            <div className="bg-green-100 p-4 rounded-xl flex justify-between">
+              <span>Hits</span>
+              <span className="text-2xl text-green-700">
+                {final.hits} / {lionsShown}
+              </span>
+            </div>
+            <div className="bg-yellow-50 p-4 rounded-xl flex justify-between text-yellow-900">
+              <span>Misses</span>
+              <span className="text-2xl">{final.misses}</span>
+            </div>
+            <div className="bg-red-50 p-4 rounded-xl flex justify-between text-red-800">
+              <span>False Positives</span>
+              <span className="text-2xl">{final.falsePositives}</span>
             </div>
 
-            {mode === "sequence" ? (
-                 <button 
-                    onClick={() => router.push(`/game-page/rabbit-path?name=${encodeURIComponent(userName)}`)}
-                    className="block w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white text-2xl font-black py-4 rounded-full shadow-[0_6px_0_rgb(30,58,138)] hover:shadow-[0_4px_0_rgb(30,58,138)] active:translate-y-[6px] active:shadow-none transition-all uppercase tracking-wider flex items-center justify-center gap-3"
-                 >
-                    <span>Next Game: Rabbit's Path</span>
-                    <span>➡️</span>
-                 </button>
-            ) : (
-                <Link href="/" className="block w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900 text-2xl font-black py-4 rounded-full shadow-[0_6px_0_rgb(180,83,9)] hover:shadow-[0_4px_0_rgb(180,83,9)] active:translate-y-[6px] active:shadow-none transition-all uppercase tracking-wider">
-                    Play Again
-                </Link>
-            )}
+            <div className="bg-blue-50 p-4 rounded-xl text-blue-900">
+              <div className="flex justify-between">
+                <span>Mean RT</span>
+                <span className="text-2xl">
+                  {Math.round(mean(final.hitRTs))} ms
+                </span>
+              </div>
+              <div className="flex justify-between mt-2">
+                <span>Median RT</span>
+                <span className="text-2xl">
+                  {Math.round(median(final.hitRTs))} ms
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {mode === "sequence" ? (
+            <button
+              onClick={() =>
+                router.push(
+                  `/game-page/rabbit-path?name=${encodeURIComponent(userName)}`
+                )
+              }
+              className="block w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white text-2xl font-black py-4 rounded-full shadow-[0_6px_0_rgb(30,58,138)] hover:shadow-[0_4px_0_rgb(30,58,138)] active:translate-y-[6px] active:shadow-none transition-all uppercase tracking-wider flex items-center justify-center gap-3"
+            >
+              <span>Next Game</span>
+              <span>➡️</span>
+            </button>
+          ) : (
+            <Link
+              href="/"
+              className="block w-full bg-yellow-400 hover:bg-yellow-300 text-yellow-900 text-2xl font-black py-4 rounded-full shadow-[0_6px_0_rgb(180,83,9)] hover:shadow-[0_4px_0_rgb(180,83,9)] active:translate-y-[6px] active:shadow-none transition-all uppercase tracking-wider"
+            >
+              Play Again
+            </Link>
+          )}
         </div>
       </main>
     );
   }
 
-  const currentAnimal = animalQueue[currentIndex];
-
-
-
-  const handleRestart = () => {
-    window.location.reload();
-  };
-
-  const handleExit = () => {
-    router.push("/");
-  };
+  const currentTrial = trialIndex >= 0 ? trials[trialIndex] : null;
 
   return (
-    <main className="min-h-screen bg-green-600 flex flex-col items-center justify-center relative overflow-hidden" onClick={handleInput}>
-       {/* Background Pattern */}
-       <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #fff 10%, transparent 10%)', backgroundSize: '40px 40px'}}></div>
+    <main
+      className="min-h-screen bg-green-600 flex flex-col items-center justify-center relative overflow-hidden"
+      onPointerDown={handleInput}
+    >
+      {/* Background Pattern */}
+      <div
+        className="absolute inset-0 opacity-10 pointer-events-none"
+        style={{
+          backgroundImage: "radial-gradient(circle, #fff 10%, transparent 10%)",
+          backgroundSize: "40px 40px",
+        }}
+      />
 
-       {/* Game Controls */}
-       <div className="absolute top-4 right-4 z-50 flex gap-3 pointer-events-auto">
-          <button 
-            onClick={(e) => { e.stopPropagation(); handleRestart(); }}
-            className="bg-white/20 hover:bg-white/40 text-white p-3 rounded-full backdrop-blur-sm transition-all text-xl"
-            title="Restart Game"
-          >
-            🔄
-          </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); handleExit(); }}
-            className="bg-red-500/20 hover:bg-red-500/40 text-white p-3 rounded-full backdrop-blur-sm transition-all text-xl"
-            title="Exit Game"
-          >
-            ❌
-          </button>
-       </div>
+      {/* Controls */}
+      <div className="absolute top-4 right-4 z-50 flex gap-3 pointer-events-auto">
+        <button
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            handleRestart();
+          }}
+          className="bg-white/20 hover:bg-white/40 text-white p-3 rounded-full backdrop-blur-sm transition-all text-xl"
+          title="Restart Game"
+        >
+          🔄
+        </button>
+        <button
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            handleExit();
+          }}
+          className="bg-red-500/20 hover:bg-red-500/40 text-white p-3 rounded-full backdrop-blur-sm transition-all text-xl"
+          title="Exit Game"
+        >
+          ❌
+        </button>
+      </div>
 
-       <div className="relative z-10 flex flex-col items-center">
-            {currentAnimal && (
-                <div className="transform transition-all duration-200 scale-100">
-                    <div className="bg-white p-4 rounded-3xl shadow-2xl rotate-1 border-8 border-white">
-                        {/* We use specific filenames we generated */}
-                        <Image 
-                            src={`/assets/game/${currentAnimal}_sticker.png`}
-                            alt={currentAnimal}
-                            width={350}
-                            height={350}
-                            className="object-contain"
-                            priority
-                        />
-                    </div>
-                </div>
+      <div className="relative z-10 flex flex-col items-center select-none">
+        {/* Use plain <img> for lowest overhead + no Next/Image lazy behavior */}
+        <div className="transform transition-all duration-150 scale-100">
+          <div className="bg-white p-4 rounded-3xl shadow-2xl rotate-1 border-8 border-white">
+            {currentSrc ? (
+              <img
+                src={currentSrc}
+                alt={currentTrial?.animal ?? "animal"}
+                width={350}
+                height={350}
+                draggable={false}
+                className="object-contain"
+              />
+            ) : (
+              <div className="w-[350px] h-[350px]" />
             )}
-            
-            {/* Visual Guide for Kids */}
-            <p className="mt-12 text-white/80 text-xl font-bold bg-black/20 px-6 py-2 rounded-full backdrop-blur-sm">
-                Press SPACE when you see a <span className="text-yellow-300">LEOPARD</span>!
-            </p>
-       </div>
+          </div>
+        </div>
+
+        <p className="mt-10 text-white/90 text-xl font-bold bg-black/20 px-6 py-2 rounded-full backdrop-blur-sm">
+          Tap / Press SPACE only for{" "}
+          <span className="text-yellow-300">LION</span>
+        </p>
+
+        {/* optional: tiny debug line */}
+        <p className="mt-3 text-white/60 text-sm font-semibold">
+          Trial {Math.max(0, trialIndex + 1)} / {TOTAL_TRIALS}
+        </p>
+      </div>
     </main>
   );
 }
 
 export default function GamePage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-green-500 flex items-center justify-center text-white text-3xl font-bold">Loading Jungle...</div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-green-500 flex items-center justify-center text-white text-3xl font-bold">
+          Loading...
+        </div>
+      }
+    >
       <GameContent />
     </Suspense>
   );
