@@ -216,7 +216,10 @@ export default function RabbitRiverGame({
     setPhaseMsLeft(ROUND_SHOW_MS);
 
     // Animation Timing
-    const stepMs = Math.floor(ROUND_SHOW_MS / (seq.length + 2));
+    // Reserve time for: Start position + each stone in sequence + pause on last stone + End position
+    // Give each stone equal time, but add extra pause before jumping to End
+    const totalSteps = seq.length + 1; // +1 for moving from start to first stone
+    const stepMs = Math.floor((ROUND_SHOW_MS - 1500) / totalSteps); // Reserve 1500ms for end jump
     
     // Animation Sequence: ALWAYS FORWARD for "Show" phase
     timers.current.push(window.setTimeout(() => moveRabbitTo(0), 100));
@@ -228,11 +231,15 @@ export default function RabbitRiverGame({
         }, (idx + 1) * stepMs));
     });
 
-    // Jump to End (11)
+    // Clear active stone highlight after landing on last stone (but keep rabbit there)
     timers.current.push(window.setTimeout(() => {
         setActiveStone(null);
+    }, seq.length * stepMs + stepMs - 200));
+
+    // Jump to End (11) - with extra delay to ensure last stone is visible
+    timers.current.push(window.setTimeout(() => {
         moveRabbitTo(11);
-    }, (seq.length + 1) * stepMs));
+    }, ROUND_SHOW_MS - 500));
 
     // Input Phase
     timers.current.push(window.setTimeout(() => {

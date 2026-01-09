@@ -20,7 +20,6 @@ const PER_ANIMAL = TOTAL_TRIALS / ANIMALS.length; // 24
 
 type Trial = {
   animal: AnimalType;
-  variant: number; // 1..5
 };
 
 type Score = {
@@ -30,10 +29,10 @@ type Score = {
   hitRTs: number[]; // ms
 };
 
-function getImageSrc(animal: AnimalType, variant: number) {
+function getImageSrc(animal: AnimalType) {
   // CHANGE THIS if your filenames differ:
   // Example expected: /assets/game/lion_1.png ... lion_5.png
-  return `/assets/game/${animal}_${variant}.webp`;
+  return `/assets/game/${animal}.webp`;
 }
 
 function shuffleInPlace<T>(arr: T[]) {
@@ -44,16 +43,16 @@ function shuffleInPlace<T>(arr: T[]) {
   return arr;
 }
 
-function mean(nums: number[]) {
-  if (!nums.length) return 0;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-function median(nums: number[]) {
-  if (!nums.length) return 0;
-  const a = [...nums].sort((x, y) => x - y);
-  const m = (a.length / 2) | 0;
-  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
-}
+// function mean(nums: number[]) {
+//   if (!nums.length) return 0;
+//   return nums.reduce((a, b) => a + b, 0) / nums.length;
+// }
+// function median(nums: number[]) {
+//   if (!nums.length) return 0;
+//   const a = [...nums].sort((x, y) => x - y);
+//   const m = (a.length / 2) | 0;
+//   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+// }
 
 function GameContent() {
   const searchParams = useSearchParams();
@@ -79,9 +78,9 @@ function GameContent() {
   const trials: Trial[] = useMemo(() => {
     const deck: Trial[] = [];
     for (const animal of ANIMALS) {
+      // Push PER_ANIMAL (24) copies of each animal for a total of 120 trials
       for (let i = 0; i < PER_ANIMAL; i++) {
-        const variant = 1 + ((Math.random() * IMAGES_PER_ANIMAL) | 0);
-        deck.push({ animal, variant });
+        deck.push({ animal });
       }
     }
     shuffleInPlace(deck);
@@ -111,7 +110,7 @@ function GameContent() {
       const srcs: string[] = [];
       for (const a of ANIMALS) {
         for (let v = 1; v <= IMAGES_PER_ANIMAL; v++) {
-          srcs.push(getImageSrc(a, v));
+          srcs.push(getImageSrc(a));
         }
       }
 
@@ -189,7 +188,7 @@ function GameContent() {
       onsetRef.current = now;
 
       // update image
-      setCurrentSrc(getImageSrc(t.animal, t.variant));
+      setCurrentSrc(getImageSrc(t.animal));
     },
     [trials, endGame]
   );
@@ -344,40 +343,8 @@ function GameContent() {
       <main className="min-h-screen bg-green-500 flex flex-col items-center justify-center p-4 relative overflow-hidden">
         <div className="z-10 bg-white/90 backdrop-blur-md rounded-3xl p-8 shadow-2xl border-4 border-yellow-400 max-w-md w-full text-center">
           <h1 className="text-4xl font-extrabold text-green-900 mb-6">
-            Done, {userName}
+            Done, {userName} , Thank you for playing!
           </h1>
-
-          <div className="space-y-3 mb-6 text-lg font-bold text-green-800">
-            <div className="bg-green-100 p-4 rounded-xl flex justify-between">
-              <span>Hits</span>
-              <span className="text-2xl text-green-700">
-                {final.hits} / {lionsShown}
-              </span>
-            </div>
-            <div className="bg-yellow-50 p-4 rounded-xl flex justify-between text-yellow-900">
-              <span>Misses</span>
-              <span className="text-2xl">{final.misses}</span>
-            </div>
-            <div className="bg-red-50 p-4 rounded-xl flex justify-between text-red-800">
-              <span>False Positives</span>
-              <span className="text-2xl">{final.falsePositives}</span>
-            </div>
-
-            <div className="bg-blue-50 p-4 rounded-xl text-blue-900">
-              <div className="flex justify-between">
-                <span>Mean RT</span>
-                <span className="text-2xl">
-                  {Math.round(mean(final.hitRTs))} ms
-                </span>
-              </div>
-              <div className="flex justify-between mt-2">
-                <span>Median RT</span>
-                <span className="text-2xl">
-                  {Math.round(median(final.hitRTs))} ms
-                </span>
-              </div>
-            </div>
-          </div>
 
           {mode === "sequence" ? (
             <button
