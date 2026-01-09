@@ -16,6 +16,11 @@ export default function Home() {
           router.push(target);
           return;
       }
+      else if (gamePath.includes("hydro-tube")) {
+          const target = `/game-page/hydro-tube?name=${encodeURIComponent(name)}&class=${selectedClass}`;
+          router.push(target);
+          return;
+      }
 
       // For other games, include name and class in params
       const separator = gamePath.includes("?") ? "&" : "?";
@@ -115,7 +120,25 @@ export default function Home() {
                 Play Rabbit's Path (Class {selectedClass})
             </button>
         </div>
-
+        {/* Card 3: Hydro Tube */}
+        <div className="group bg-white/90 backdrop-blur-md rounded-3xl p-6 shadow-xl border-4 border-blue-200 hover:border-blue-400 transition-all duration-300 transform hover:-translate-y-2 flex flex-col items-center text-center">
+            <div className="text-7xl mb-4 group-hover:scale-110 transition-transform duration-300">
+                🌊
+            </div>
+            <h2 className="text-3xl font-black text-blue-900 mb-2">
+                Hydro Tube
+            </h2>
+            <p className="text-blue-700/80 mb-6 font-medium text-lg leading-relaxed flex-grow">
+                Find a path for water to reach Bucket !
+            </p>
+            <button
+                onClick={() => handlePlay("hydro-tube")}
+                disabled={!name.trim()}
+                className="w-full bg-blue-500 hover:bg-blue-400 text-white disabled:opacity-50 disabled:cursor-not-allowed text-xl font-black py-4 rounded-2xl shadow-[0_4px_0_rgb(29,78,216)] hover:shadow-[0_2px_0_rgb(29,78,216)] active:shadow-none active:translate-y-[4px] transition-all uppercase tracking-wider"
+            >
+                Play Hydro Tube
+            </button>
+        </div>
       </div>
 
       {/* Sequence Mode Action */}
