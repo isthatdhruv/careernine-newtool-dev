@@ -2,8 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { useGameData } from "@/app/config/DataContext";
 
 // Asset Paths
 const SCENE_SRC = "/game-scenes/2nd/game-scene-2nd.png";
@@ -82,6 +81,13 @@ export default function RabbitRiverGame({
     reverseInput = false
 }: RabbitRiverGameProps) {
   
+  const { saveRabbitPath, setStudentInfo } = useGameData();
+
+  // Set student info on mount
+  useEffect(() => {
+    setStudentInfo(studentName, className);
+  }, [studentName, className, setStudentInfo]);
+
   // Video State
   const [showVideo, setShowVideo] = useState(true);
   const [videoEnded, setVideoEnded] = useState(false);
@@ -461,20 +467,13 @@ export default function RabbitRiverGame({
   useEffect(() => {
     if (phase === "done") {
         const save = async () => {
-            const normalizedId = studentName.trim().toLowerCase();
             try {
-                await setDoc(doc(db, "game_results", normalizedId), {
-                    name: studentName,
-                    className: className,
-                    rabbit_path: {
-                        score: score,
-                        totalRounds: totalRounds,
-                        roundsPlayed: round + 1,
-                        timestamp: new Date().toISOString(),
-                        history: history // Save detailed history for analytics
-                    },
-                    timestamp: new Date().toISOString()
-                }, { merge: true });
+                await saveRabbitPath({
+                    score: score,
+                    totalRounds: totalRounds,
+                    roundsPlayed: round + 1,
+                    history: history,
+                });
                 console.log("Saved");
             } catch(e) {
                 console.error("Save failed", e);
@@ -482,7 +481,7 @@ export default function RabbitRiverGame({
         };
         save();
     }
-  }, [phase, score, studentName, className, history]);
+  }, [phase, score, history, saveRabbitPath, totalRounds, round]);
 
   // Render Helpers
   const phaseLabel = useMemo(() => {

@@ -2,8 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
-import { db } from "../../../lib/firebase";
+import { useGameData } from "@/app/config/DataContext";
 
 /**
  * Rabbit River Memory Game
@@ -157,6 +156,16 @@ function GameContent() {
   const [showVideo, setShowVideo] = useState(true);
   const [videoEnded, setVideoEnded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  const { saveRabbitPath, setStudentInfo } = useGameData();
+  const searchParams = useSearchParams();
+  const userName = searchParams.get("name") || "Explorer";
+  const userClass = searchParams.get("class") || "";
+
+  // Set student info on mount
+  useEffect(() => {
+    setStudentInfo(userName, userClass ? `Class ${userClass}` : "");
+  }, [userName, userClass, setStudentInfo]);
 
   // Editor State
   const [stonesState, setStonesState] = useState<StonePos[]>(STONES);
@@ -591,10 +600,6 @@ function GameContent() {
     }
   };
 
-
-  const searchParams = useSearchParams();
-  const userName = searchParams.get("name") || "Explorer";
-
   // Phase countdown UI
   useEffect(() => {
     if (phase !== "show" && phase !== "input") return;
@@ -610,18 +615,12 @@ function GameContent() {
   useEffect(() => {
     if (phase === "done") {
         const save = async () => {
-            const normalizedId = userName.trim().toLowerCase();
             try {
-                await setDoc(doc(db, "game_results", normalizedId), {
-                    name: userName,
-                    rabbit_path: {
-                        score: score,
-                        totalRounds: TOTAL_ROUNDS,
-                        roundsPlayed: round + 1,
-                        timestamp: new Date().toISOString()
-                    },
-                    timestamp: new Date().toISOString()
-                }, { merge: true });
+                await saveRabbitPath({
+                    score: score,
+                    totalRounds: TOTAL_ROUNDS,
+                    roundsPlayed: round + 1,
+                });
                 console.log("Rabbit score saved");
             } catch(e) {
                 console.error("Save failed", e);
@@ -629,7 +628,7 @@ function GameContent() {
         };
         save();
     }
-  }, [phase, score, userName]);
+  }, [phase, score, round, saveRabbitPath]);
 
   // Cleanup
   useEffect(() => {

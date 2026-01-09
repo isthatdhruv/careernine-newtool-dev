@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { doc, setDoc } from "firebase/firestore";
-import { db } from "../../../lib/firebase";
+import { useGameData } from "@/app/config/DataContext";
 import { Suspense } from "react";
 
 type AnimalType = "lion" | "elephant" | "rhino" | "deer" | "tiger";
@@ -57,15 +56,23 @@ function shuffleInPlace<T>(arr: T[]) {
 function GameContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { saveAnimalReaction, setStudentInfo } = useGameData();
 
   const userName = searchParams.get("name") || "Explorer";
+  const userClass = searchParams.get("class") || "";
   const mode = searchParams.get("mode"); // "sequence" or null
+
+  // Set student info from URL params
+  useEffect(() => {
+    setStudentInfo(userName, userClass ? `Class ${userClass}` : "");
+  }, [userName, userClass, setStudentInfo]);
 
   // UI state (kept minimal to avoid re-render noise)
   const [ready, setReady] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [trialIndex, setTrialIndex] = useState(-1);
   const [currentSrc, setCurrentSrc] = useState<string>("");
+  const [showFlash, setShowFlash] = useState(false); // Brief flash between trials
 
   const [score, setScore] = useState<Score>({
     hits: 0,
@@ -187,6 +194,10 @@ function GameContent() {
       clickedThisTrialRef.current = false;
       onsetRef.current = now;
 
+      // Flash briefly to indicate new trial (especially for consecutive same-animal)
+      setShowFlash(true);
+      setTimeout(() => setShowFlash(false), 80);
+
       // update image
       setCurrentSrc(getImageSrc(t.animal));
     },
@@ -282,11 +293,7 @@ function GameContent() {
 
     const saveResult = async () => {
       try {
-        const normalizedId = userName.trim().toLowerCase();
-
         const final = scoreRef.current;
-        // const rtMean = mean(final.hitRTs);
-        // const rtMedian = median(final.hitRTs);
 
         // count how many lions were shown
         const lionsShown = trials.reduce(
@@ -294,32 +301,23 @@ function GameContent() {
           0
         );
 
-        await setDoc(
-          doc(db, "game_results", normalizedId),
-          {
-            name: userName,
-            animal_reaction: {
-              totalTrials: TOTAL_TRIALS,
-              trialMs: TRIAL_MS,
-              target: "lion",
-              targetsShown: lionsShown,
-              hits: final.hits,
-              misses: final.misses,
-              falsePositives: final.falsePositives,
-              hitRTsMs: final.hitRTs, // keep if you want raw
-              timestamp: new Date().toISOString(),
-            },
-            timestamp: new Date().toISOString(),
-          },
-          { merge: true }
-        );
+        await saveAnimalReaction({
+          totalTrials: TOTAL_TRIALS,
+          trialMs: TRIAL_MS,
+          target: "lion",
+          targetsShown: lionsShown,
+          hits: final.hits,
+          misses: final.misses,
+          falsePositives: final.falsePositives,
+          hitRTsMs: final.hitRTs,
+        });
       } catch (e) {
         console.error("Error saving result:", e);
       }
     };
 
     saveResult();
-  }, [gameOver, trials, userName]);
+  }, [gameOver, trials, saveAnimalReaction]);
 
   const handleRestart = () => window.location.reload();
   const handleExit = () => router.push("/");
@@ -350,7 +348,7 @@ function GameContent() {
             <button
               onClick={() =>
                 router.push(
-                  `/game-page/rabbit-path?name=${encodeURIComponent(userName)}`
+                  `/game-page/rabbit-path/grade-${userClass || "3"}?name=${encodeURIComponent(userName)}&class=${userClass || "3"}`
                 )
               }
               className="block w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white text-2xl font-black py-4 rounded-full shadow-[0_6px_0_rgb(30,58,138)] hover:shadow-[0_4px_0_rgb(30,58,138)] active:translate-y-[6px] active:shadow-none transition-all uppercase tracking-wider flex items-center justify-center gap-3"
@@ -415,7 +413,7 @@ function GameContent() {
         {/* Use plain <img> for lowest overhead + no Next/Image lazy behavior */}
         <div className="transform transition-all duration-150 scale-100">
           <div className="bg-white p-4 rounded-3xl shadow-2xl rotate-1 border-8 border-white">
-            {currentSrc ? (
+            {currentSrc && !showFlash ? (
               <img
                 src={currentSrc}
                 alt={currentTrial?.animal ?? "animal"}

@@ -10,15 +10,16 @@ export default function Home() {
 
   const handlePlay = (gamePath: string) => {
     if (name.trim()) {
-      // For Rabbit Path, we redirect to grade-specific page if it's the rabbit game
+      // For Rabbit Path, we redirect to grade-specific page
       if (gamePath.includes("rabbit-path")) {
-          const target = `/game-page/rabbit-path/grade-${selectedClass}?name=${encodeURIComponent(name)}`;
+          const target = `/game-page/rabbit-path/grade-${selectedClass}?name=${encodeURIComponent(name)}&class=${selectedClass}`;
           router.push(target);
           return;
       }
 
+      // For other games, include name and class in params
       const separator = gamePath.includes("?") ? "&" : "?";
-      router.push(`${gamePath}${separator}name=${encodeURIComponent(name)}`);
+      router.push(`${gamePath}${separator}name=${encodeURIComponent(name)}&class=${selectedClass}`);
     }
   };
 
