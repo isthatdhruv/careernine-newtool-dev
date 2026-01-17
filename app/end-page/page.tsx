@@ -147,7 +147,7 @@ function EndContent() {
 
         <div className="mt-16 text-slate-500 text-sm">
           <p className="mb-2">{content.footer}</p>
-          <p className="opacity-75">Made with 💙 for puzzle lovers</p>
+          <p className="opacity-75">Made with 💙 from CareerNine</p>
         </div>
       </div>
     </div>

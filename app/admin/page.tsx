@@ -33,6 +33,18 @@ interface GameResult {
     timestamp: string;
     history?: any[];
   };
+
+  // Hydro tube data
+  hydro_tube?: {
+    patternsCompleted: number;
+    totalPatterns: number;
+    aimlessRotations: number;
+    curiousClicks: number;
+    tilesCorrect: number;
+    totalTiles: number;
+    timeSpentSeconds: number;
+    timestamp: string;
+  };
   
   // Legacy fields for backward compatibility
   jungle_spot?: {
@@ -116,6 +128,7 @@ export default function AdminDashboard() {
   const downloadReport = (r: GameResult) => {
     const animal = getAnimalReactionData(r);
     const rabbit = r.rabbit_path;
+    const hydro = r.hydro_tube;
 
     const flattenedData = [{
       "Student Name": r.name || "nil",
@@ -146,6 +159,16 @@ export default function AdminDashboard() {
       "Rabbit: Date Played": rabbit?.timestamp 
         ? new Date(rabbit.timestamp).toLocaleString() 
         : "nil",
+
+      // Hydro Tube Data
+      "Hydro: Patterns Completed": hydro ? `${hydro.patternsCompleted}/${hydro.totalPatterns}` : "nil",
+      "Hydro: Aimless Rotations": hydro ? hydro.aimlessRotations : "nil",
+      "Hydro: Curious Clicks": hydro ? hydro.curiousClicks : "nil",
+      "Hydro: Tiles Correct": hydro ? `${hydro.tilesCorrect}/${hydro.totalTiles}` : "nil",
+      "Hydro: Time Spent (s)": hydro ? hydro.timeSpentSeconds : "nil",
+      "Hydro: Date Played": hydro?.timestamp 
+        ? new Date(hydro.timestamp).toLocaleString() 
+        : "nil",
       
       "Last Updated": r.timestamp ? new Date(r.timestamp).toLocaleString() : "nil"
     }];
@@ -160,6 +183,7 @@ export default function AdminDashboard() {
     const flattenedData = results.map(r => {
       const animal = getAnimalReactionData(r);
       const rabbit = r.rabbit_path;
+      const hydro = r.hydro_tube;
 
       return {
         "Student Name": r.name || "nil",
@@ -186,6 +210,16 @@ export default function AdminDashboard() {
         "Rabbit: Rounds Played": rabbit ? rabbit.roundsPlayed : "nil",
         "Rabbit: Date Played": rabbit?.timestamp 
           ? new Date(rabbit.timestamp).toLocaleString() 
+          : "nil",
+
+        // Hydro Tube Data
+        "Hydro: Patterns Completed": hydro ? `${hydro.patternsCompleted}/${hydro.totalPatterns}` : "nil",
+        "Hydro: Aimless Rotations": hydro ? hydro.aimlessRotations : "nil",
+        "Hydro: Curious Clicks": hydro ? hydro.curiousClicks : "nil",
+        "Hydro: Tiles Correct": hydro ? `${hydro.tilesCorrect}/${hydro.totalTiles}` : "nil",
+        "Hydro: Time Spent (s)": hydro ? hydro.timeSpentSeconds : "nil",
+        "Hydro: Date Played": hydro?.timestamp 
+          ? new Date(hydro.timestamp).toLocaleString() 
           : "nil",
         
         "Last Updated": r.timestamp ? new Date(r.timestamp).toLocaleString() : "nil"
@@ -233,6 +267,9 @@ export default function AdminDashboard() {
                   Rabbit Score
                 </th>
                 <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  Hydro Tube
+                </th>
+                <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                   Last Active
                 </th>
                 <th className="px-5 py-3 border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -244,6 +281,7 @@ export default function AdminDashboard() {
               {results.map((result) => {
                 const animal = getAnimalReactionData(result);
                 const rabbit = result.rabbit_path;
+                const hydro = result.hydro_tube;
                 
                 return (
                   <tr key={result.id}>
@@ -287,6 +325,18 @@ export default function AdminDashboard() {
                       )}
                     </td>
                     <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
+                      {hydro ? (
+                        <span className="relative inline-block px-3 py-1 font-semibold text-cyan-900 leading-tight">
+                          <span aria-hidden className="absolute inset-0 bg-cyan-200 opacity-50 rounded-full"></span>
+                          <span className="relative">
+                            {hydro.patternsCompleted}/{hydro.totalPatterns}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 italic">Not Played</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-5 border-b border-gray-200 bg-white text-sm">
                       <p className="text-gray-900 whitespace-no-wrap">
                         {new Date(result.timestamp).toLocaleDateString()}
                       </p>
@@ -304,7 +354,7 @@ export default function AdminDashboard() {
               })}
               {results.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-5 text-center text-gray-500">
+                  <td colSpan={8} className="px-5 py-5 text-center text-gray-500">
                     No results found yet.
                   </td>
                 </tr>

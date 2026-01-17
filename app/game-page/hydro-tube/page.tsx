@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useGameData } from "@/app/config/DataContext";
 
-export default function HydroTube() {
+function HydroTubeContent() {
   const [tileRotations, setTileRotations] = useState<Record<number, number>>({});
   const [isWon, setIsWon] = useState(false);
   const [patternId, setPatternId] = useState(0);
@@ -13,18 +14,34 @@ export default function HydroTube() {
   const [aimlessRotations, setAimlessRotations] = useState(0);
   const [timeLeft, setTimeLeft] = useState(180);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [gameEnded, setGameEnded] = useState(false);
   
   // New States for Curious Clicks
   const [curiousClicks, setCuriousClicks] = useState(0);
   const [highlightedTile, setHighlightedTile] = useState<number | null>(null);
   
+  // State for tracking tile progress
+  const [tilesCorrect, setTilesCorrect] = useState(0);
+  const [totalSolutionTiles, setTotalSolutionTiles] = useState(16);
+
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { saveHydroTube, setStudentInfo } = useGameData();
+
+  // Get URL params
+  const userName = searchParams.get("name") || "Player";
+  const userClass = searchParams.get("class") || "";
+
+  // Set student info from URL params
+  useEffect(() => {
+    setStudentInfo(userName, userClass ? `Class ${userClass}` : "");
+  }, [userName, userClass, setStudentInfo]);
 
   type Pattern = {
     id: number;
     name: string;
     tileTypes: Record<number, string>;
-    solution: number[];
+    solutions: number[][];  // 2D array to store multiple valid solutions
   };
 
   const patterns: Pattern[] = [
@@ -37,7 +54,10 @@ export default function HydroTube() {
         9: "bend", 10: "bend", 11: "straight", 12: "bend",
         13: "straight", 14: "bend", 15: "straight", 16: "bend",
       },
-      solution: [270, 90, 0, 0, 0, 270, 90, 90, 0, 0, 90, 180, 0, 270, 90, 90] || [270,0,0,0,0,0,0,0,270,90,0,0,0,270,90,90]
+      solutions: [
+        [270, 90, 0, 0, 0, 270, 90, 90, 0, 0, 90, 180, 0, 270, 90, 90],
+        [270, 0, 0, 0, 0, 0, 0, 0, 270, 90, 0, 0, 0, 270, 90, 90]
+      ]
     },
     {
       id: 1,
@@ -48,7 +68,9 @@ export default function HydroTube() {
         9: "bend", 10: "t-pipe", 11: "straight", 12: "bend",
         13: "straight", 14: "straight", 15: "bend", 16: "straight",
       },
-      solution: [270, 90, 0, 0, 0, 180, 0, 0, 270, 0, 90, 90, 0, 0, 0, 0],
+      solutions: [
+        [270, 90, 0, 0, 0, 180, 0, 0, 270, 0, 90, 90, 0, 0, 0, 0]
+      ],
     },
   ];
 
@@ -76,8 +98,7 @@ export default function HydroTube() {
 
         if (prev <= 1) {
           clearInterval(timer);
-          // Pass completed count to end page
-          router.push(`/end-page?completed=${completedPatterns.length}`); 
+          setGameEnded(true);
           return 0;
         }
         return nextTime;
@@ -88,13 +109,65 @@ export default function HydroTube() {
     // STICK RULE: Keep dependency array length constant to prevent crash
   }, [router, isInitialized]);
 
+  // Save data to Firestore when game ends
+  useEffect(() => {
+    if (!gameEnded) return;
+
+    const saveResult = async () => {
+      try {
+        await saveHydroTube({
+          patternsCompleted: completedPatterns.length,
+          totalPatterns: 2,
+          aimlessRotations,
+          curiousClicks,
+          tilesCorrect,
+          totalTiles: totalSolutionTiles,
+          timeSpentSeconds: 180 - timeLeft,
+        });
+        console.log("Hydro tube game data saved");
+      } catch (e) {
+        console.error("Error saving hydro tube data:", e);
+      }
+      // Redirect to end page after saving
+      router.push(`/end-page?completed=${completedPatterns.length}`);
+    };
+
+    saveResult();
+  }, [gameEnded, completedPatterns.length, aimlessRotations, curiousClicks, tilesCorrect, totalSolutionTiles, timeLeft, saveHydroTube, router]);
+
   const checkWin = (currentRotations: Record<number, number>): boolean => {
     const playerRotations = Array.from({ length: 16 }, (_, i) => currentRotations[i + 1] || 0);
-    const isMatch = currentPattern.solution.every((solRot, i) => {
-      const playerRotation = playerRotations[i];
-      return solRot === 0 || solRot === playerRotation;
+    // Check if player's rotations match ANY of the valid solutions
+    return currentPattern.solutions.some((solution) =>
+      solution.every((solRot, i) => {
+        const playerRotation = playerRotations[i];
+        return solRot === 0 || solRot === playerRotation;
+      })
+    );
+  };
+
+  // Calculate how many tiles are correct out of total solution tiles
+  const calculateProgress = (currentRotations: Record<number, number>): { correct: number; total: number } => {
+    const playerRotations = Array.from({ length: 16 }, (_, i) => currentRotations[i + 1] || 0);
+    
+    // Find the solution with the most matching tiles
+    let bestCorrectCount = 0;
+    
+    currentPattern.solutions.forEach((solution) => {
+      let correctCount = 0;
+      solution.forEach((solRot, i) => {
+        const playerRotation = playerRotations[i];
+        // A tile is correct if it matches the solution (solRot === 0 means any rotation is valid)
+        if (solRot === 0 || solRot === playerRotation) {
+          correctCount++;
+        }
+      });
+      if (correctCount > bestCorrectCount) {
+        bestCorrectCount = correctCount;
+      }
     });
-    return isMatch;
+    
+    return { correct: bestCorrectCount, total: 16 };
   };
 
   const loadNextPattern = () => {
@@ -102,7 +175,9 @@ export default function HydroTube() {
     setCompletedPatterns(newCompletedPatterns);
     
     if (newCompletedPatterns.length >= 2) {
-      router.push("/end-page?completed=2");
+      // Update tilesCorrect to 16 since player completed the pattern
+      setTilesCorrect(16);
+      setGameEnded(true); // This will trigger the save useEffect
       return;
     }
     const nextPatternId = patterns.findIndex(p => !newCompletedPatterns.includes(p.id));
@@ -141,6 +216,12 @@ export default function HydroTube() {
       const currentRotation = prev[tileNumber] || 0;
       const newRotation = (currentRotation + 90) % 360;
       const newState = { ...prev, [tileNumber]: newRotation };
+      
+      // Update progress tracking
+      const progress = calculateProgress(newState);
+      setTilesCorrect(progress.correct);
+      setTotalSolutionTiles(progress.total);
+      
       if (checkWin(newState)) {
         setTimeout(() => setIsWon(true), 500);
       }
@@ -343,5 +424,19 @@ export default function HydroTube() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function HydroTube() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-cyan-50 flex items-center justify-center text-blue-600 text-3xl font-bold">
+          Loading...
+        </div>
+      }
+    >
+      <HydroTubeContent />
+    </Suspense>
   );
 }
