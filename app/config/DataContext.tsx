@@ -25,11 +25,23 @@ export type RabbitPathData = {
   history?: any[];
 };
 
+export type HydroTubeData = {
+  patternsCompleted: number;
+  totalPatterns: number;
+  aimlessRotations: number;
+  curiousClicks: number;
+  tilesCorrect: number;
+  totalTiles: number;
+  timeSpentSeconds: number;
+  timestamp?: string;
+};
+
 export type GameData = {
   name: string;
   className?: string;
   animal_reaction?: AnimalReactionData;
   rabbit_path?: RabbitPathData;
+  hydro_tube?: HydroTubeData;
   timestamp: string;
 };
 
@@ -39,6 +51,7 @@ type DataContextType = {
   setStudentInfo: (name: string, className: string) => void;
   saveAnimalReaction: (data: Omit<AnimalReactionData, "timestamp">) => Promise<void>;
   saveRabbitPath: (data: Omit<RabbitPathData, "timestamp">) => Promise<void>;
+  saveHydroTube: (data: Omit<HydroTubeData, "timestamp">) => Promise<void>;
   isSaving: boolean;
 };
 
@@ -98,6 +111,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [studentName, studentClass, getDocId]);
 
+  const saveHydroTube = useCallback(async (data: Omit<HydroTubeData, "timestamp">) => {
+    if (!studentName) {
+      console.warn("Cannot save: studentName not set");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, "game_results", getDocId()), {
+        name: studentName,
+        ...(studentClass ? { className: studentClass } : {}),
+        hydro_tube: { ...data, timestamp: new Date().toISOString() },
+        timestamp: new Date().toISOString(),
+      }, { merge: true });
+      console.log("Hydro tube saved");
+    } catch (e) {
+      console.error("Save failed:", e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [studentName, studentClass, getDocId]);
+
   return (
     <DataContext.Provider value={{
       studentName,
@@ -105,6 +139,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setStudentInfo,
       saveAnimalReaction,
       saveRabbitPath,
+      saveHydroTube,
       isSaving,
     }}>
       {children}
