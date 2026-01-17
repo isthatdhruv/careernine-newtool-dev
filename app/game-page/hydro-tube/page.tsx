@@ -1,9 +1,9 @@
 "use client";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useGameData } from "@/app/config/DataContext";
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 
-export default function HydroTube() {
+function HydroTubeContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { setStudentInfo } = useGameData();
@@ -20,5 +20,13 @@ export default function HydroTube() {
         <div>
             <h1>Hydro Tube</h1>
         </div>
+    );
+}
+
+export default function HydroTube() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+            <HydroTubeContent />
+        </Suspense>
     );
 }
